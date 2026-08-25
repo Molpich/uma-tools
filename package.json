@@ -3,7 +3,17 @@
   "version": "0.0.1",
   "description": "",
   "main": "index.js",
-  "scripts": {},
+  "scripts": {
+    "build:umalator-global": "cd umalator-global && node build.mjs",
+    "dev:umalator-global": "cd umalator-global && node build.mjs --serve 8000",
+
+    "audit:special-scaling": "node uma-skill-tools/tools/audit-special-scaling.mjs",
+    "audit:skill-branches": "node uma-skill-tools/tools/audit-skill-branches.mjs",
+    "audit:conditions": "node tools/audit-condition-coverage.mjs",
+    "audit:data": "node tools/audit-data-integrity.mjs",
+    "test:montecarlo": "node --experimental-strip-types --test umalator/montecarlo.test.ts",
+    "test:rank-aware": "node --experimental-strip-types --test umalator/rank.test.ts umalator/rank-aware-worker.test.mjs"
+  },
   "author": "pecan",
   "license": "GPL-3.0-or-later",
   "devDependencies": {

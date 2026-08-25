@@ -14,16 +14,19 @@ import { O, c, K, State, makeState, useLens, useGetter, useSetter, useInspectSta
 import { Language, LanguageSelect, useLanguageSelect } from '../components/Language';
 import { SkillList, ExpandedSkillDetails, skillGroups, isPurpleSkill } from '../components/SkillList';
 import { RaceTrack, TrackSelect, RegionDisplayType } from '../components/RaceTrack';
-import { HorseState, DEFAULT_HORSE_STATE, serializeUma, deserializeUma } from '../components/HorseDefTypes';
+import { HorseState, DEFAULT_HORSE_STATE, makeDefaultOpponent, makeDefaultOpponentRoster, serializeUma, deserializeUma } from '../components/HorseDefTypes';
 import { HorseDef, horseDefTabs, isGeneralSkill } from '../components/HorseDef';
 import { extendStrings, TRACKNAMES_ja, TRACKNAMES_en, COMMON_STRINGS } from '../strings/common';
 
 import { getActivateableSkills, getNullRow, BasinnChart } from './BasinnChart';
+import { UmaChart } from './UmaChart';
+import { getUmaTableCandidates } from './uma-table';
 import { StaCalcResults } from './StaCalc';
 
 import { initTelemetry, postEvent } from './telemetry';
 
 import { IntroText } from './IntroText';
+import { RaceReplay } from './RaceReplay';
 
 import skilldata from '../uma-skill-tools/data/skill_data.json';
 import skillnames from '../uma-skill-tools/data/skillnames.json';
@@ -402,6 +405,102 @@ const VelocityLines = memo(function VelocityLines(props) {
 	);
 });
 
+const MonteCarloChart = memo(function MonteCarloChart(props) {
+	const axes = useRef(null);
+	const {stats, width, height, kind} = props;
+	const margin = {top: 18, right: 20, bottom: 42, left: 64};
+	const innerWidth = width - margin.left - margin.right;
+	const innerHeight = height - margin.top - margin.bottom;
+	const byDistance = kind == 'leadByDistance';
+	const xValues = byDistance ? stats.distance : stats.time;
+	const leadValues = byDistance ? stats.leadByDistance : stats.lead;
+	const x = d3.scaleLinear().domain([0, byDistance ? props.courseDistance : stats.time[stats.time.length - 1]]).range([0,innerWidth]);
+	let yDomain;
+	if (kind == 'speed') {
+		const maxSpeed = d3.max(stats.meanVelocity[0].concat(stats.meanVelocity[1]));
+		yDomain = [0, maxSpeed || 1];
+	} else {
+		const extent = d3.max(leadValues, d => Math.max(Math.abs(d.p10), Math.abs(d.p90), Math.abs(d.mean)));
+		yDomain = extent == 0 ? [-1,1] : [-extent,extent];
+	}
+	const y = d3.scaleLinear().domain(yDomain).nice().range([innerHeight,0]);
+	useEffect(function () {
+		const g = d3.select(axes.current);
+		g.selectAll('*').remove();
+		g.append('g').attr('transform', `translate(0,${innerHeight})`).call(d3.axisBottom(x));
+		g.append('g').call(d3.axisLeft(y));
+	}, [stats, width, height, kind]);
+	const line = d3.line().x((_,i) => x(xValues[i])).y(d => y(d));
+	const leadLine = field => d3.line().x((_,i) => x(xValues[i])).y(d => y(d[field]))(leadValues);
+	const band = (low, high) => d3.area().x((_,i) => x(xValues[i])).y0(d => y(d[low])).y1(d => y(d[high]))(leadValues);
+	return (
+		<svg class="monteCarloChart" width={width} height={height} role="img" aria-label={props.title}>
+			<text class="chartTitle" x={width / 2} y="14" text-anchor="middle">{props.title}</text>
+			<g transform={`translate(${margin.left},${margin.top})`}>
+				{kind == 'speed' ? <Fragment>
+					<path fill="none" stroke={UMA1_COLOR} stroke-width="2.5" d={line(stats.meanVelocity[0])} />
+					<path fill="none" stroke={UMA2_COLOR} stroke-width="2.5" d={line(stats.meanVelocity[1])} />
+				</Fragment> : <Fragment>
+					<path class="leadBandOuter" d={band('p10','p90')} />
+					<path class="leadBandInner" d={band('p25','p75')} />
+					<line class="zeroLine" x1="0" x2={innerWidth} y1={y(0)} y2={y(0)} />
+					<path fill="none" stroke="#222" stroke-width="2.5" d={leadLine('mean')} />
+					<path fill="none" stroke="#555" stroke-width="2" stroke-dasharray="6,4" d={leadLine('median')} />
+				</Fragment>}
+				<g ref={axes} />
+				<text class="axisLabel" x={innerWidth / 2} y={innerHeight + 36} text-anchor="middle">{byDistance ? 'Race position (meters)' : 'Time (seconds)'}</text>
+				<text class="axisLabel" transform="rotate(-90)" x={-innerHeight / 2} y={-48} text-anchor="middle">{kind == 'speed' ? 'Speed (m/s)' : 'Uma 1 lead (meters)'}</text>
+			</g>
+		</svg>
+	);
+});
+
+function formatDistribution(d, unit) {
+	return d == null ? '—' : `${d.median.toFixed(2)} ${unit} (p10 ${d.p10.toFixed(2)}, p90 ${d.p90.toFixed(2)})`;
+}
+
+function WinRateSummary(props) {
+	const format = count => `${(100 * count / props.winRate.total).toFixed(1)}%`;
+	const [uma1, uma2] = props.winRate.wins;
+	return (
+		<div id="winRateSummary">
+			<div>Head-to-head win rate: Uma 1 {format(uma1)} · Uma 2 {format(uma2)} · ties {format(props.winRate.ties)}</div>
+			{props.fieldWinRate && <div>Field win rate: Uma 1 {format(props.fieldWinRate.wins[0])} · Uma 2 {format(props.fieldWinRate.wins[1])} · other runners {format(Math.max(0, props.fieldWinRate.total - props.fieldWinRate.wins[0] - props.fieldWinRate.wins[1] - props.fieldWinRate.ties))} · ties {format(props.fieldWinRate.ties)}</div>}
+		</div>
+	);
+}
+
+const MonteCarloAnalysis = memo(function MonteCarloAnalysis(props) {
+	const stats = props.stats;
+	const hasSkillStats = stats.skillActivations.some(uma => uma.length > 0);
+	return (
+		<section id="monteCarloAnalysis">
+			<h2>All-run Monte Carlo analysis</h2>
+			<p class="analysisNote">These graphs use all {stats.runs} runs. The speed graph averages each runner's recorded velocity and treats them as stopped after finishing; the lead graphs keep finished runners at {props.courseDistance} m. The velocity/HP display above remains one representative individual run.</p>
+			<div class="analysisLegend"><span class="uma1Swatch" />Uma 1 <span class="uma2Swatch" />Uma 2 <span class="meanSwatch" />Mean lead <span class="medianSwatch" />Median lead; bands p25–p75 and p10–p90</div>
+			<MonteCarloChart kind="speed" title="Speed vs Time" stats={stats} courseDistance={props.courseDistance} width={920} height={290} />
+			<MonteCarloChart kind="lead" title="Lead vs Time" stats={stats} courseDistance={props.courseDistance} width={920} height={290} />
+			<MonteCarloChart kind="leadByDistance" title="Relative Lead vs Race Position" stats={stats} courseDistance={props.courseDistance} width={920} height={290} />
+			<p class="analysisNote">For the distance-indexed graph, race position is the frontmost runner's distance at that instant. Each run stops at the first finish, so the endpoint preserves the winner's finishing gap. Positive values mean Uma 1 is ahead; negative values mean Uma 2 is ahead.</p>
+			<p class="consistencyCheck">Numerical check: max |mean(p1−p2) − (mean(p1)−mean(p2))| = {stats.identityMaxError.toExponential(3)} m</p>
+			{hasSkillStats && <div class="activationStats">
+				<h3>Skill activation statistics</h3>
+				{stats.skillActivations.map((uma,i) => uma.length > 0 && <table class={`activationTable uma${i+1}`}>
+					<caption>Uma {i+1}</caption>
+					<thead><tr><th>Skill</th><th>Activation rate</th><th>Never activated</th><th>Activation distance</th><th>Activation time</th></tr></thead>
+					<tbody>{uma.map(s => <tr>
+						<th><img src={`/uma-tools/icons/skill/utx_ico_skill_${skillmeta[s.id].iconId}.png`} />{skillnames[s.id][0]}</th>
+						<td>{(s.activationRate * 100).toFixed(1)}% ({s.activatedRuns}/{stats.runs})</td>
+						<td>{s.neverActivated}</td>
+						<td>{formatDistribution(s.position, 'm')}</td>
+						<td>{formatDistribution(s.time, 's')}</td>
+					</tr>)}</tbody>
+				</table>)}
+			</div>}
+		</section>
+	);
+});
+
 const ResultsTable = memo(function ResultsTable(props) {
 	const {caption, class:cls, chartData, idx, spurtRate} = props;
 	return (
@@ -452,7 +551,7 @@ function racedefToParams({ground, weather, season, time, grade}: RaceParams, inc
 	};
 }
 
-async function serialize(courseId: number, nsamples: number, seed: number, usePosKeep: boolean, useCompeteTop: boolean, useIntChecks: boolean, racedef: RaceParams, hintLevels: Map<string,number>, uma1: HorseState, uma2: HorseState, debufUma: HorseState, chartMode: string | null, chartSkills: string[] | null) {
+async function serialize(courseId: number, nsamples: number, seed: number, usePosKeep: boolean, useCompeteTop: boolean, useIntChecks: boolean, rankAwareField: boolean, simulateLanes: boolean, fieldSize: number, racedef: RaceParams, hintLevels: Map<string,number>, uma1: HorseState, uma2: HorseState, fieldUmas: HorseState[], debufUma: HorseState, chartMode: string | null, chartSkills: string[] | null) {
 	const o = {
 		courseId,
 		nsamples,
@@ -460,10 +559,14 @@ async function serialize(courseId: number, nsamples: number, seed: number, usePo
 		usePosKeep,
 		useCompeteTop,
 		useIntChecks,
+		rankAwareField,
+		simulateLanes,
+		fieldSize,
 		racedef,
 		hintLevels: Object.fromEntries([...hintLevels].filter(([_,l]) => l > 0)),
 		uma1: serializeUma(uma1),
 		uma2: serializeUma(uma2),
+		fieldUmas: fieldUmas.map(serializeUma),
 	};
 	if (chartMode != null) o.chartMode = chartMode;
 	if (chartSkills != null) o.chartSkills = chartSkills;
@@ -512,6 +615,8 @@ async function deserialize(hash) {
 		if (result.done) {
 			try {
 				const o = JSON.parse(json);
+				const uma1 = deserializeUma(o.uma1);
+				const uma2 = deserializeUma(o.uma2);
 				return {
 					courseId: o.courseId,
 					nsamples: o.nsamples,
@@ -519,10 +624,14 @@ async function deserialize(hash) {
 					usePosKeep: o.usePosKeep,
 					useCompeteTop: o.useCompeteTop ?? true,  // v9
 					useIntChecks: o.useIntChecks || false,  // v3
+					rankAwareField: o.rankAwareField || false,
+					simulateLanes: o.simulateLanes || false,
+					fieldSize: o.fieldSize || 9,
 					racedef: o.racedef,
 					hintLevels: new Map([...allZeroHints, ...(o.hintLevels ? Object.entries(o.hintLevels) : [])]),  // v10
-					uma1: deserializeUma(o.uma1),
-					uma2: deserializeUma(o.uma2),
+					uma1,
+					uma2,
+					fieldUmas: o.fieldUmas ? o.fieldUmas.map(deserializeUma) : makeDefaultOpponentRoster(uma1, uma2),
 					debufUma: deserializeUma(o.debufUma || serializeUma(DEFAULT_HORSE_STATE)),  // v7
 					// optional fields (only added when serialized from basinn chart screen)
 					chartMode: o.chartMode || 'all',  // v6
@@ -536,10 +645,14 @@ async function deserialize(hash) {
 					usePosKeep: true,
 					useCompeteTop: true,
 					useIntChecks: false,
+					rankAwareField: false,
+					simulateLanes: false,
+					fieldSize: 9,
 					racedef: DEFAULT_RACE_PARAMS,
 					hintLevels: new Map(allZeroHints),
 					uma1: DEFAULT_HORSE_STATE,
 					uma2: DEFAULT_HORSE_STATE,
+					fieldUmas: makeDefaultOpponentRoster(DEFAULT_HORSE_STATE, DEFAULT_HORSE_STATE),
 					debufUma: DEFAULT_HORSE_STATE,
 					chartMode: 'all',
 					chartSkills: null
@@ -628,6 +741,433 @@ const enum Mode { Compare, Chart, StaCalc }
 
 const NULL_RESULTS = Object.freeze({results: [], runData: null});
 
+function cloneHorse(uma: HorseState): HorseState {
+	return deserializeUma(serializeUma(uma));
+}
+
+const FIELD_PRESET_STORAGE_KEY = 'uma-tools.field-presets.v1';
+const FIELD_PRESET_FORMAT = 'uma-tools-field-presets';
+
+interface FieldPreset {
+	version: 1
+	id: string
+	name: string
+	courseId: number | null
+	fieldSize: number
+	runners: ReturnType<typeof serializeUma>[]
+	createdAt: string
+	modifiedAt: string
+}
+
+function makeFieldPresetId() {
+	return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function normalizeFieldPreset(value): FieldPreset | null {
+	if (value == null || typeof value != 'object' || !Array.isArray(value.runners)) return null;
+	const fieldSize = Math.max(2, Math.min(18, Math.trunc(+value.fieldSize || value.runners.length + 2)));
+	const runners = value.runners.slice(0, fieldSize - 2);
+	try {
+		runners.forEach(deserializeUma);
+	} catch (_) {
+		return null;
+	}
+	const now = new Date().toISOString();
+	return {
+		version: 1,
+		id: typeof value.id == 'string' && value.id.length > 0 ? value.id : makeFieldPresetId(),
+		name: typeof value.name == 'string' && value.name.trim().length > 0 ? value.name.trim() : 'Imported field',
+		courseId: Number.isFinite(+value.courseId) ? +value.courseId : null,
+		fieldSize,
+		runners,
+		createdAt: typeof value.createdAt == 'string' ? value.createdAt : now,
+		modifiedAt: typeof value.modifiedAt == 'string' ? value.modifiedAt : now
+	};
+}
+
+function loadFieldPresets(): FieldPreset[] {
+	try {
+		const values = JSON.parse(localStorage.getItem(FIELD_PRESET_STORAGE_KEY) || '[]');
+		return Array.isArray(values) ? values.map(normalizeFieldPreset).filter(Boolean) : [];
+	} catch (_) {
+		return [];
+	}
+}
+
+function fieldPresetCourseLabel(courseId: number | null) {
+	if (courseId == null) return 'Any course';
+	try {
+		const course = CourseHelpers.getCourse(courseId);
+		return `${TRACKNAMES_en[course.raceTrackId] || `Course ${courseId}`} ${course.distance}m`;
+	} catch (_) {
+		return `Course ${courseId}`;
+	}
+}
+
+const STRATEGY_IDS: Readonly<Record<HorseState['strategy'], number>> = Object.freeze({
+	Nige: 1,
+	Senkou: 2,
+	Sasi: 3,
+	Oikomi: 4,
+	Oonige: 5
+});
+
+function StrategyLabel(props: {strategy: HorseState['strategy']}) {
+	const id = STRATEGY_IDS[props.strategy];
+	return id == null ? <>{props.strategy}</> : <Text id={`common.strategy.${id}`} />;
+}
+
+const OpponentRoster = memo(function OpponentRoster(props) {
+	const [fieldUmas, setFieldUmas] = useLens(O.fieldUmas);
+	const [, setUma2] = useLens(O.uma2);
+	const opponentCount = Math.max(0, props.fieldSize - 2);
+	const [selected_, setSelected] = useState<number | null>(-1);
+	const [fieldPresets, setFieldPresets] = useState<FieldPreset[]>(loadFieldPresets);
+	const [selectedPresetId, setSelectedPresetId] = useState('builtin:synthetic');
+	const [presetName, setPresetName] = useState('Untitled field');
+	const [presetMessage, setPresetMessage] = useState('');
+	const importInput = useRef<HTMLInputElement>(null);
+	const selected = props.embedded && selected_ == null
+		? null
+		: selected_ != null && selected_ >= 0
+			? Math.min(selected_, Math.max(0, opponentCount - 1))
+			: -1;
+	const compactOverview = props.embedded && selected == null;
+	const selectedPreset = fieldPresets.find(preset => preset.id == selectedPresetId) || null;
+	const presetPreview = selectedPreset == null
+		? Array.from({length: opponentCount}, (_, index) => serializeUma(makeDefaultOpponent(props.uma1, props.uma2, index)))
+		: selectedPreset.runners;
+	useEffect(() => {
+		try {
+			localStorage.setItem(FIELD_PRESET_STORAGE_KEY, JSON.stringify(fieldPresets));
+		} catch (_) {
+			setPresetMessage('Preset changes could not be saved in this browser.');
+		}
+	}, [fieldPresets]);
+	useEffect(() => {
+		if (selectedPreset != null) setPresetName(selectedPreset.name);
+	}, [selectedPresetId]);
+	useEffect(() => {
+		if (fieldUmas.length < opponentCount) {
+			setFieldUmas(umas => {
+				const next = umas.slice();
+				while (next.length < opponentCount) next.push(makeDefaultOpponent(props.uma1, props.uma2, next.length));
+				return next;
+			});
+		}
+	}, [opponentCount, fieldUmas.length]);
+
+	function ensureAndSelect(index: number) {
+		if (index >= fieldUmas.length) {
+			setFieldUmas(umas => {
+				const next = umas.slice();
+				while (next.length <= index) next.push(makeDefaultOpponent(props.uma1, props.uma2, next.length));
+				return next;
+			});
+		}
+		setSelected(index);
+	}
+
+	function selectRunner(index: number) {
+		if (index < 0) setSelected(-1);
+		else ensureAndSelect(index);
+	}
+
+	function replaceSelected(uma: HorseState) {
+		if (selected < 0) {
+			setUma2(cloneHorse(uma));
+			return;
+		}
+		setFieldUmas(umas => {
+			const next = umas.slice();
+			next[selected] = cloneHorse(uma);
+			return next;
+		});
+	}
+
+	function addRunner() {
+		if (props.fieldSize >= 18) return;
+		const index = opponentCount;
+		ensureAndSelect(index);
+		props.setFieldSize(props.fieldSize + 1);
+	}
+
+	function currentPresetRunners() {
+		return fieldUmas.slice(0, opponentCount).map(serializeUma);
+	}
+
+	function saveNewPreset() {
+		const name = presetName.trim();
+		if (name.length == 0) {
+			setPresetMessage('Enter a preset name first.');
+			return;
+		}
+		const now = new Date().toISOString();
+		const preset: FieldPreset = {
+			version: 1, id: makeFieldPresetId(), name, courseId: props.courseId,
+			fieldSize: props.fieldSize, runners: currentPresetRunners(), createdAt: now, modifiedAt: now
+		};
+		setFieldPresets(presets => [preset, ...presets]);
+		setSelectedPresetId(preset.id);
+		setPresetMessage(`Saved “${name}”.`);
+	}
+
+	function updateSelectedPreset() {
+		if (selectedPreset == null) return;
+		setFieldPresets(presets => presets.map(preset => preset.id == selectedPreset.id ? {
+			...preset,
+			courseId: props.courseId,
+			fieldSize: props.fieldSize,
+			runners: currentPresetRunners(),
+			modifiedAt: new Date().toISOString()
+		} : preset));
+		setPresetMessage(`Updated “${selectedPreset.name}” from the current field.`);
+	}
+
+	function renameSelectedPreset() {
+		if (selectedPreset == null) return;
+		const name = presetName.trim();
+		if (name.length == 0) {
+			setPresetMessage('Enter a preset name first.');
+			return;
+		}
+		setFieldPresets(presets => presets.map(preset => preset.id == selectedPreset.id
+			? {...preset, name, modifiedAt: new Date().toISOString()} : preset));
+		setPresetMessage(`Renamed preset to “${name}”.`);
+	}
+
+	function applySelectedPreset() {
+		if (selectedPreset == null) {
+			setFieldUmas(makeDefaultOpponentRoster(props.uma1, props.uma2));
+			setPresetMessage('Applied the synthetic no-skill baseline.');
+		} else {
+			props.setFieldSize(selectedPreset.fieldSize);
+			setFieldUmas(selectedPreset.runners.map(deserializeUma));
+			setPresetMessage(`Applied “${selectedPreset.name}”.`);
+		}
+		setSelected(0);
+	}
+
+	function duplicateSelectedPreset() {
+		if (selectedPreset == null) return;
+		const now = new Date().toISOString();
+		const copy = {...selectedPreset, id: makeFieldPresetId(), name: `${selectedPreset.name} copy`, createdAt: now, modifiedAt: now};
+		setFieldPresets(presets => [copy, ...presets]);
+		setSelectedPresetId(copy.id);
+		setPresetName(copy.name);
+		setPresetMessage(`Created “${copy.name}”.`);
+	}
+
+	function deleteSelectedPreset() {
+		if (selectedPreset == null || !window.confirm(`Delete field preset “${selectedPreset.name}”?`)) return;
+		setFieldPresets(presets => presets.filter(preset => preset.id != selectedPreset.id));
+		setSelectedPresetId('builtin:synthetic');
+		setPresetName('Untitled field');
+		setPresetMessage(`Deleted “${selectedPreset.name}”.`);
+	}
+
+	function exportSelectedPreset() {
+		const presets = selectedPreset == null ? fieldPresets : [selectedPreset];
+		if (presets.length == 0) {
+			setPresetMessage('There are no custom presets to export.');
+			return;
+		}
+		const blob = new Blob([JSON.stringify({format: FIELD_PRESET_FORMAT, version: 1, presets}, null, 2)], {type: 'application/json'});
+		const url = URL.createObjectURL(blob);
+		const anchor = document.createElement('a');
+		anchor.href = url;
+		anchor.download = selectedPreset == null ? 'uma-tools-field-presets.json' : `${selectedPreset.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'field-preset'}.json`;
+		document.body.appendChild(anchor);
+		anchor.click();
+		anchor.remove();
+		setTimeout(() => URL.revokeObjectURL(url), 0);
+		setPresetMessage(`Exported ${presets.length} preset${presets.length == 1 ? '' : 's'}.`);
+	}
+
+	async function importPresets(e) {
+		const file = e.currentTarget.files?.[0];
+		if (file == null) return;
+		try {
+			const value = JSON.parse(await file.text());
+			const source = Array.isArray(value) ? value : value?.format == FIELD_PRESET_FORMAT ? value.presets : [value];
+			const imported = (Array.isArray(source) ? source : []).map(normalizeFieldPreset).filter(Boolean).map(preset => ({...preset, id: makeFieldPresetId()}));
+			if (imported.length == 0) throw new Error('No valid presets');
+			setFieldPresets(presets => [...imported, ...presets]);
+			setSelectedPresetId(imported[0].id);
+			setPresetName(imported[0].name);
+			setPresetMessage(`Imported ${imported.length} preset${imported.length == 1 ? '' : 's'}.`);
+		} catch (_) {
+			setPresetMessage('That file does not contain a valid field preset.');
+		}
+		e.currentTarget.value = '';
+	}
+
+	const opponentCards = <div class="opponentCards">
+		<button class={`opponentCard tracked ${selected === -1 ? 'selected' : ''}`} onClick={() => selectRunner(-1)}>
+			<strong>Uma 2</strong><span>Runner 2 · Comparison opponent</span><small><img class="opponentCardUmaIcon" src="/uma-tools/icons/utx_ico_umamusume_00.png" alt="" /><StrategyLabel strategy={props.uma2.strategy} /> · {props.uma2.skills.size} skills</small>
+		</button>
+		{fieldUmas.slice(0, opponentCount).map((uma, index) =>
+			<button class={`opponentCard ${selected == index ? 'selected' : ''} ${!props.fieldEnabled ? 'fieldInactive' : ''}`} onClick={() => selectRunner(index)} title={!props.fieldEnabled ? 'This runner is configured but only participates when Experimental full-field ranks is enabled.' : ''}>
+				<strong>Runner {index + 3}</strong><span><StrategyLabel strategy={uma.strategy} /></span>
+				<small><img class="opponentCardUmaIcon" src="/uma-tools/icons/utx_ico_umamusume_00.png" alt="" />{uma.speed}/{uma.stamina}/{uma.power}/{uma.guts}/{uma.wisdom} · {uma.skills.size} skills</small>
+			</button>)}
+	</div>;
+
+	if (props.embedded) {
+		const embeddedSelected = selected == null ? -1 : selected;
+		const embeddedUma = embeddedSelected < 0 ? props.uma2 : fieldUmas[embeddedSelected];
+		return <section id="opponentRoster" class="embeddedOpponentRoster">
+			{embeddedUma && <HorseDef key={`embedded-${embeddedSelected < 0 ? 'uma2' : embeddedSelected}-${embeddedUma.outfitId}`} state={embeddedSelected < 0 ? O.uma2 : O.fieldUmas[embeddedSelected]} aptitudesMode="simulation" course={props.course} showPolicyEd={true} tabstart={() => 4}>
+				{embeddedSelected < 0 ? <Text id="ui.uma2" /> : `Runner ${embeddedSelected + 3}`}
+			</HorseDef>}
+			<div class="embeddedRunnerListLabel">Other runners</div>
+			{opponentCards}
+			{props.fieldEnabled && embeddedSelected >= 0 && <div class="embeddedFieldTools">
+				<div class="fieldRunnerActions">
+					<span>Runners 3–{props.fieldSize}</span>
+					<button class="stdBtn" onClick={addRunner} disabled={props.fieldSize >= 18}>Add runner</button>
+					<button class="stdBtn" onClick={() => props.setFieldSize(Math.max(2, props.fieldSize - 1))} disabled={opponentCount == 0}>Remove last</button>
+				</div>
+				<details class="embeddedFieldPresetDetails">
+					<summary>Field presets</summary>
+					<div class="fieldPresetManager">
+						<div class="fieldPresetHeading">
+							<div>
+								<strong>Field presets</strong>
+								<small>Saved locally in this browser. Presets contain runners 3–{props.fieldSize}, including stats, styles, aptitudes, skills, and activation policies.</small>
+							</div>
+							<span class="fieldPresetCourse">Current: {fieldPresetCourseLabel(props.courseId)}</span>
+						</div>
+						<div class="fieldPresetControls">
+							<label>Preset
+								<select value={selectedPresetId} onChange={e => setSelectedPresetId(e.currentTarget.value)}>
+									<option value="builtin:synthetic">Synthetic baseline (no skills)</option>
+									{fieldPresets.map(preset => <option value={preset.id}>{preset.name} — {fieldPresetCourseLabel(preset.courseId)}</option>)}
+								</select>
+							</label>
+							<label>Name
+								<input type="text" value={presetName} onInput={e => setPresetName(e.currentTarget.value)} />
+							</label>
+							<button class="stdBtn btnType1" onClick={applySelectedPreset}>Apply</button>
+							<button class="stdBtn btnType1" onClick={saveNewPreset}>Save new</button>
+							<button class="stdBtn btnType2" onClick={updateSelectedPreset} disabled={selectedPreset == null}>Update</button>
+							<button class="stdBtn btnType2" onClick={renameSelectedPreset} disabled={selectedPreset == null}>Rename</button>
+							<button class="stdBtn btnType2" onClick={duplicateSelectedPreset} disabled={selectedPreset == null}>Duplicate</button>
+							<button class="stdBtn btnType2" onClick={deleteSelectedPreset} disabled={selectedPreset == null}>Delete</button>
+							<button class="stdBtn btnType2" onClick={exportSelectedPreset}>Export</button>
+							<button class="stdBtn btnType2" onClick={() => importInput.current?.click()}>Import</button>
+							<input class="fieldPresetImport" ref={importInput} type="file" accept="application/json,.json" onChange={importPresets} />
+						</div>
+						{presetMessage && <p class="fieldPresetMessage" role="status">{presetMessage}</p>}
+						<details class="fieldPresetPreview">
+							<summary>Preview: {presetPreview.length} opponents · {presetPreview.reduce((sum, runner) => sum + (runner.skills?.length || 0), 0)} skills{selectedPreset != null && <> · {fieldPresetCourseLabel(selectedPreset.courseId)}</>}</summary>
+							<div class="fieldPresetRunnerList">
+								{presetPreview.map((runner, index) => <div class="fieldPresetRunner">
+									<strong>Runner {index + 3}</strong>
+									<span><StrategyLabel strategy={runner.strategy} /></span>
+									<small>{runner.speed}/{runner.stamina}/{runner.power}/{runner.guts}/{runner.wisdom}</small>
+									<div class="fieldPresetSkillList">{runner.skills?.length > 0 ? runner.skills.map(id => <span><Text id={`skillnames.${id}`} /></span>) : <em>No skills</em>}</div>
+								</div>)}
+							</div>
+						</details>
+					</div>
+				</details>
+			</div>}
+		</section>;
+	}
+
+	if (compactOverview) return <section id="opponentRoster" class="embeddedOpponentRoster compactOpponentRoster">
+		<div class="opponentRosterHeader">
+			<div>
+				<h2>Other Umas</h2>
+				<p>Select a runner to edit stats, style, aptitudes, skills, and activation policies.</p>
+			</div>
+		</div>
+		{opponentCards}
+		<p class="compactOpponentHint">Uma 2 is the comparison opponent used by normal compare and skill-table simulations. Full-field runners appear here when full-field ranks are enabled.</p>
+	</section>;
+
+	return <section id="opponentRoster" class={props.fieldEnabled ? 'fieldEnabled' : ''}>
+		<div class="opponentRosterHeader">
+			<div>
+				<h2>Other Umas</h2>
+				<p>Uma 2 (Runner 2) is the comparison opponent. Full-field mode adds runners 3–{props.fieldSize} behind the same editor.</p>
+			</div>
+		</div>
+		<div class="otherUmaTabs" role="tablist" aria-label="Other Uma editor">
+			<button role="tab" aria-selected={selected < 0} class={selected < 0 ? 'selected' : ''} onClick={() => setSelected(-1)}>Comparison opponent</button>
+			<button role="tab" aria-selected={selected >= 0} class={selected >= 0 ? 'selected' : ''} onClick={() => ensureAndSelect(0)} disabled={!props.fieldEnabled}>Field runners</button>
+		</div>
+		{props.fieldEnabled && selected >= 0 && <div class="fieldRunnerActions">
+			<span>Runners 3–{props.fieldSize}</span>
+			<button class="stdBtn" onClick={addRunner} disabled={props.fieldSize >= 18}>Add runner</button>
+			<button class="stdBtn" onClick={() => props.setFieldSize(Math.max(2, props.fieldSize - 1))} disabled={opponentCount == 0}>Remove last</button>
+		</div>}
+		{props.fieldEnabled && selected >= 0 && <div class="fieldPresetManager">
+			<div class="fieldPresetHeading">
+				<div>
+					<strong>Field presets</strong>
+					<small>Saved locally in this browser. Presets contain runners 3–{props.fieldSize}, including stats, styles, aptitudes, skills, and activation policies.</small>
+				</div>
+				<span class="fieldPresetCourse">Current: {fieldPresetCourseLabel(props.courseId)}</span>
+			</div>
+			<div class="fieldPresetControls">
+				<label>Preset
+					<select value={selectedPresetId} onChange={e => setSelectedPresetId(e.currentTarget.value)}>
+						<option value="builtin:synthetic">Synthetic baseline (no skills)</option>
+						{fieldPresets.map(preset => <option value={preset.id}>{preset.name} — {fieldPresetCourseLabel(preset.courseId)}</option>)}
+					</select>
+				</label>
+				<label>Name
+					<input type="text" value={presetName} onInput={e => setPresetName(e.currentTarget.value)} />
+				</label>
+				<button class="stdBtn btnType1" onClick={applySelectedPreset}>Apply</button>
+				<button class="stdBtn btnType1" onClick={saveNewPreset}>Save new</button>
+				<button class="stdBtn btnType2" onClick={updateSelectedPreset} disabled={selectedPreset == null}>Update</button>
+				<button class="stdBtn btnType2" onClick={renameSelectedPreset} disabled={selectedPreset == null}>Rename</button>
+				<button class="stdBtn btnType2" onClick={duplicateSelectedPreset} disabled={selectedPreset == null}>Duplicate</button>
+				<button class="stdBtn btnType2" onClick={deleteSelectedPreset} disabled={selectedPreset == null}>Delete</button>
+				<button class="stdBtn btnType2" onClick={exportSelectedPreset}>Export</button>
+				<button class="stdBtn btnType2" onClick={() => importInput.current?.click()}>Import</button>
+				<input class="fieldPresetImport" ref={importInput} type="file" accept="application/json,.json" onChange={importPresets} />
+			</div>
+			{presetMessage && <p class="fieldPresetMessage" role="status">{presetMessage}</p>}
+			<details class="fieldPresetPreview">
+				<summary>
+					Preview: {presetPreview.length} opponents · {presetPreview.reduce((sum, runner) => sum + (runner.skills?.length || 0), 0)} skills
+					{selectedPreset != null && <> · {fieldPresetCourseLabel(selectedPreset.courseId)}</>}
+				</summary>
+				<div class="fieldPresetRunnerList">
+					{presetPreview.map((runner, index) => <div class="fieldPresetRunner">
+						<strong>Runner {index + 3}</strong>
+						<span><StrategyLabel strategy={runner.strategy} /></span>
+						<small>{runner.speed}/{runner.stamina}/{runner.power}/{runner.guts}/{runner.wisdom}</small>
+						<div class="fieldPresetSkillList">
+							{runner.skills?.length > 0 ? runner.skills.map(id => <span><Text id={`skillnames.${id}`} /></span>) : <em>No skills</em>}
+						</div>
+					</div>)}
+				</div>
+			</details>
+		</div>}
+		{opponentCards}
+		<div class="opponentEditor">
+			<div class="opponentEditorActions">
+				<strong>{selected < 0 ? 'Editing Uma 2 (comparison opponent)' : `Editing runner ${selected + 3}`}</strong>
+				{props.embedded && <button onClick={() => setSelected(null)}>Back to runner overview</button>}
+				<button onClick={() => replaceSelected(props.uma1)}>Copy Uma 1</button>
+				{selected >= 0 && <button onClick={() => replaceSelected(props.uma2)}>Copy comparison opponent</button>}
+				<button onClick={() => replaceSelected(makeDefaultOpponent(props.uma1, props.uma2, Math.max(0, selected)))}>Reset synthetic</button>
+			</div>
+			{selected < 0 ? <HorseDef key={`comparison-${props.uma2.outfitId}`} state={O.uma2} aptitudesMode="simulation" course={props.course} showPolicyEd={true} tabstart={() => 4 + horseDefTabs()}>
+				Uma 2 · Comparison opponent
+			</HorseDef> : fieldUmas[selected] && <HorseDef key={`opponent-${selected}-${fieldUmas[selected].outfitId}`} state={O.fieldUmas[selected]} aptitudesMode="simulation" course={props.course} showPolicyEd={true} tabstart={() => 4 + 2 * horseDefTabs()}>
+				Runner {selected + 3}
+			</HorseDef>}
+		</div>
+		<p class={`fieldApproximationNotice ${!props.fieldEnabled ? 'optionUnavailable' : ''}`}><strong>Experimental field model:</strong> optional lane movement affects lane-qualified skill conditions. Physical blocking slowdown is not applied.</p>
+	</section>;
+});
+
 function Umalator(props) {
 	//const [language, setLanguage] = useLanguageSelect();
 	const [racedef] = useLens(O.racedef);
@@ -636,6 +1176,14 @@ function Umalator(props) {
 	const [usePosKeep, setPosKeep] = useLens(O.usePosKeep); const togglePosKeep = () => setPosKeep(toggle);
 	const [useCompeteTop, setCompeteTop] = useLens(O.useCompeteTop); const toggleCompeteTop = () => setCompeteTop(toggle);
 	const [useIntChecks_, setIntChecks] = useLens(O.useIntChecks); const toggleIntChecks = () => setIntChecks(toggle);
+	const [rankAwareField, setRankAwareField] = useLens(O.rankAwareField);
+	const [simulateLanes, setSimulateLanes] = useLens(O.simulateLanes);
+	const toggleRankAwareField = () => {
+		if (rankAwareField) setSimulateLanes(false);
+		setRankAwareField(toggle);
+	};
+	const toggleSimulateLanes = () => setSimulateLanes(toggle);
+	const [fieldSize, setFieldSize] = useLens(O.fieldSize);
 	const [showHp, setShowHp] = useLens(O.useShowHp); const toggleShowHp = () => setShowHp(toggle);
 	const [courseId, setCourseId_] = useLens(O.courseId);
 	const [displaying, setChartData] = useLens(O.displayedRun);
@@ -665,6 +1213,10 @@ function Umalator(props) {
 		});
 	}
 
+	function updateUmaTableData(newData) {
+		setUmaTableData(data => new Map([...data, ...newData]));
+	}
+
 	function setCourseId(cid) {
 		setCourseId_(cid);
 		setCompareResults(NULL_RESULTS);
@@ -672,25 +1224,26 @@ function Umalator(props) {
 		setStacalcResults(NULL_RESULTS);
 	}
 
-	const [uma1, setUma1] = useLens(O.uma1);
-	const [uma2, setUma2] = useLens(O.uma2);
-	const [debufUma, setDebufUma] = useLens(O.debufUma);
-
-	const [currentIdx_, setCurrentIdx] = useState(0);
-	const currentIdx = mode == Mode.Chart ? 0 : currentIdx_;
-	const [expanded_, setExpanded] = useState(false);
-	const expanded = mode != Mode.Chart && expanded_;
-	function toggleExpand(e: Event) {
-		e.stopPropagation();
-		postEvent('toggleExpand', {expand: !expanded});
-		setExpanded(!expanded_);
-	}
+	const [uma1] = useLens(O.uma1);
+	const [uma2] = useLens(O.uma2);
+	const [fieldUmas] = useLens(O.fieldUmas);
+	const [debufUma] = useLens(O.debufUma);
+	const [staminaEditor, setStaminaEditor] = useState<'uma' | 'debuffer'>('uma');
+	const [umaPaneTab, setUmaPaneTab] = useState<'uma1' | 'other'>('uma1');
+	useEffect(() => {
+		if (mode == Mode.StaCalc) setUmaPaneTab('uma1');
+	}, [mode]);
 
 	const [forceFullSpurt, toggleForceFullSpurt] = useReducer(b => !b, true);
 
 	const loadedChartSkills = useGetter(O.chartSkills);
 	const [chartSkills, setChartSkills] = useState(loadedChartSkills || []);
 	const [chartMode, setChartMode] = useLens(O.chartMode);
+	const [chartTableType, setChartTableType] = useState<'skills' | 'umas'>('skills');
+	const [umaChartSamples, setUmaChartSamples] = useState(5);
+	const umaTableCandidates = useMemo(() => getUmaTableCandidates(), []);
+	const [umaTableData, setUmaTableData] = useState(new Map());
+	const [lastUmaTableRun, setLastUmaTableRun] = useState<any>(null);
 	const chartSkillsMap = useMemo(() => {
 		const m = new Map();
 		chartSkills.forEach(id => m.set(id,id));
@@ -698,6 +1251,10 @@ function Umalator(props) {
 	}, [chartSkills]);
 	const [chartSkillPickerOpen, setChartSkillPickerOpen] = useState(false);
 	const [popoverSkill, setPopoverSkill] = useState('');
+	const chartRunId = useRef(0);
+	const [chartProgress, setChartProgress] = useState({runId: 0, active: false, completed: 0, total: 0, workers: {}});
+	const compareRunId = useRef(0);
+	const [compareProgress, setCompareProgress] = useState({runId: 0, active: false, completed: 0, total: 0});
 
 	// update when state is loaded from url
 	useEffect(() => {
@@ -706,18 +1263,49 @@ function Umalator(props) {
 
 	const [lastChartRun, setLastChartRun] = useState({
 		uma: uma1,
+		otherUma: uma2,
 		courseId,
 		racedef,
 		skills: [],
+		rankAwareField: false,
+		simulateLanes: false,
+		fieldSize: 9,
+		fieldUmas: [],
 		fresh: true
 	});
 
+	function isAvailableSkillUpgrade(id) {
+		const ownedSkills = Array.from(uma1.skills.values());
+		// Exact skills are already represented in both sides of the comparison,
+		// including debuffs stored under synthetic group keys.
+		if (ownedSkills.includes(id)) return false;
+		// An inherited unique is redundant when its regular/evolved counterpart
+		// is already owned, even though those versions use different group IDs.
+		if (id[0] == '9' && ownedSkills.includes('1' + id.slice(1))) return false;
+		if (id[0] == '9' && id.length > 6 && ownedSkills.includes(id.slice(2))) return false;
+
+		const groupId = skillmeta[id].groupId;
+		const group = skillGroups.get(groupId);
+		if (group == null) return true;
+		const candidateIndex = group.indexOf(id);
+		const strongestOwnedIndex = ownedSkills.reduce((strongest, ownedId) => {
+			if (skillmeta[ownedId]?.groupId != groupId) return strongest;
+			return Math.max(strongest, group.indexOf(ownedId));
+		}, -1);
+		// skillGroups is ordered from weaker to stronger: ○, ◎, gold, pink.
+		// Therefore an owned ○ excludes only itself/lower variants, while ◎ and
+		// gold remain valid candidates.
+		return candidateIndex > strongestOwnedIndex;
+	}
+
 	function chartSkillsForMode(mode) {
+		let skills;
 		switch (mode) {
-		case 'selected': return chartSkills;
-		case 'inherit': return baseSkillsToTest.filter(id => id[0] == '9');
-		default: return baseSkillsToTest;
+		case 'selected': skills = chartSkills; break;
+		case 'inherit': skills = baseSkillsToTest.filter(id => id[0] == '9'); break;
+		default: skills = baseSkillsToTest;
 		}
+		return skills.filter(isAvailableSkillUpgrade);
 	}
 
 	function switchChartMode(e) {
@@ -756,31 +1344,80 @@ function Umalator(props) {
 		setLastChartRun({...lastChartRun, skills: [], fresh: true});
 	}
 
-	const workers = [1,2,3,4].map(_ => useMemo(() => {
+	function updateChartProgress(runId, workerId, completed, total, done) {
+		setChartProgress(current => {
+			if (runId != chartRunId.current || current.runId != runId) return current;
+			const key = String(workerId);
+			const workers = {...current.workers, [key]: {completed, total, done}};
+			const entries = Object.values(workers);
+			const completedTotal = entries.reduce((sum, progress) => sum + progress.completed, 0);
+			const reportedTotal = entries.reduce((sum, progress) => sum + progress.total, 0);
+			const allDone = entries.length == 4 && entries.every(progress => progress.done);
+			return {
+				...current,
+				workers,
+				completed: Math.min(completedTotal, current.total || reportedTotal),
+				total: current.total || reportedTotal,
+				active: !allDone
+			};
+		});
+	}
+
+	function createSimulationWorker() {
 		const w = new Worker('./simulator.worker.js');
+		w.addEventListener('error', e => console.error('simulation worker error:', e.message, e.filename, e.lineno));
 		w.addEventListener('message', function (e) {
-			const {type, results} = e.data;
+			const {type, results, runId, workerId, completed, total, done} = e.data;
 			switch (type) {
 				case 'compare':
-					setCompareResults(results);
+					if (runId == compareRunId.current) setCompareResults(results);
+					break;
+				case 'compare-progress':
+					if (runId == compareRunId.current) setCompareProgress({runId, active: !done, completed, total});
 					break;
 				case 'hpcalc':
 					setStacalcResults(results);
 					break;
 				case 'chart':
-					updateTableData(results);
+					if (runId == chartRunId.current) updateTableData(results);
+					break;
+				case 'chart-progress':
+					if (runId == chartRunId.current) updateChartProgress(runId, workerId, completed, total, done);
+					break;
+				case 'uma-chart':
+					if (runId == chartRunId.current) updateUmaTableData(results);
+					break;
+				case 'uma-chart-progress':
+					if (runId == chartRunId.current) updateChartProgress(runId, workerId, completed, total, done);
 					break;
 			}
 		});
 		return w;
-	}, []));
+	}
+
+	function createSimulationWorkers() {
+		return Array.from({length: 4}, () => createSimulationWorker());
+	}
+
+	const [workers, setWorkers] = useState(() => createSimulationWorkers());
+	useEffect(() => () => workers.forEach(worker => worker.terminate()), [workers]);
+
+	function replaceSimulationWorkers() {
+		// Chart work is synchronous inside a worker, so a cancel message would
+		// remain queued behind the current batch. Termination is the only prompt
+		// cancellation mechanism; replacement workers are immediately ready.
+		workers.forEach(worker => worker.terminate());
+		const replacement = createSimulationWorkers();
+		setWorkers(replacement);
+		return replacement;
+	}
 
 	const copyLinkLink = useRef(null);
 
 	const hintLevels_GetCurrent = useInspectState(O.hintLevels);
 	function doSerialize() {
-		return serialize(courseId, nsamples, seed, usePosKeep, useCompeteTop, useIntChecks_,
-			racedef, hintLevels_GetCurrent(), uma1, uma2, debufUma,
+		return serialize(courseId, nsamples, seed, usePosKeep, useCompeteTop, useIntChecks_, rankAwareField, simulateLanes, fieldSize,
+			racedef, hintLevels_GetCurrent(), uma1, uma2, fieldUmas, debufUma,
 			mode == Mode.Chart ? chartMode : null, mode == Mode.Chart && chartMode == 'selected' ? chartSkills : null
 		);
 	}
@@ -803,39 +1440,25 @@ function Umalator(props) {
 		});
 	}
 
-	const leftUma = uma1, rightUma = mode == Mode.StaCalc ? debufUma : uma2;
-	const setLeftUma = setUma1, setRightUma = mode == Mode.StaCalc ? setDebufUma : setUma2;
-	function copyUmaToRight() {
-		postEvent('copyUma', {direction: 'to-right'});
-		setRightUma(leftUma);
-	}
-
-	function copyUmaToLeft() {
-		postEvent('copyUma', {direction: 'to-left'});
-		setLeftUma(rightUma);
-	}
-
-	function swapUmas() {
-		postEvent('copyUma', {direction: 'swap'});
-		setLeftUma(rightUma);
-		setRightUma(leftUma);
-	}
-
 	const strings = {skillnames: {}, tracknames: TRACKNAMES_en, common: COMMON_STRINGS[props.lang], ui: UI_STRINGS[props.lang]};
 	const langid = CC_GLOBAL ? 0 : +(props.lang == 'en');
 	Object.keys(skillnames).forEach(id => strings.skillnames[id] = skillnames[id][langid]);
 
 	function doComparison() {
 		postEvent('doComparison', {});
+		const runId = ++compareRunId.current;
+		setCompareProgress({runId, active: true, completed: 0, total: 0});
 		workers[0].postMessage({
 			msg: 'compare',
 			data: {
+				runId,
 				nsamples,
 				course,
 				racedef: racedefToParams(racedef),
 				uma1: uma1,
 				uma2: uma2,
-				options: {seed, usePosKeep, useCompeteTop, useIntChecks}
+				fieldUmas: fieldUmas.slice(0, Math.max(0, fieldSize - 2)),
+				options: {seed, usePosKeep, useCompeteTop, useIntChecks, rankAwareField, simulateLanes, fieldSize}
 			}
 		});
 	}
@@ -855,31 +1478,91 @@ function Umalator(props) {
 		});
 	}
 
-	function runBasinnChart(uma, params, skills) {
+	function runBasinnChart(uma, otherUma, params, skills) {
+		const chartWorkers = replaceSimulationWorkers();
+		const runId = ++chartRunId.current;
+		const stageCount = rankAwareField ? 50 : 5;
+		setChartProgress({runId, active: true, completed: 0, total: skills.length * stageCount, workers: {}});
 		const filler = getNullTableData(skills);
 		setTableData(filler);
-		const nPerWorker = Math.ceil(skills.length/workers.length);
-		workers.reduce((skills, w) => {
-			w.postMessage({msg: 'chart', data: {skills: skills.slice(0, nPerWorker), course, racedef: params, uma, options: {seed, usePosKeep, useCompeteTop, useIntChecks: false}}});
+		const nPerWorker = Math.ceil(skills.length/chartWorkers.length);
+		chartWorkers.reduce((skills, w, workerIndex) => {
+			w.postMessage({msg: 'chart', data: {
+				skills: skills.slice(0, nPerWorker),
+				runId,
+				workerId: workerIndex + 1,
+				course,
+				racedef: params,
+				uma,
+				otherUma,
+				options: {
+					seed,
+					usePosKeep,
+					useCompeteTop,
+					useIntChecks: false,
+					rankAwareField,
+					simulateLanes,
+					fieldSize,
+					fieldUmas: fieldUmas.slice(0, Math.max(0, fieldSize - 2))
+				}
+			}});
 			return skills.slice(nPerWorker);
 		}, skills);
+	}
+
+	function stopBasinnChart() {
+		const runId = ++chartRunId.current;
+		replaceSimulationWorkers();
+		setChartProgress({runId, active: false, completed: 0, total: 0, workers: {}});
+		// Keep completed rows visible, but make the refresh control available so
+		// a stopped partial table cannot be mistaken for a completed one.
+		setLastChartRun({...lastChartRun, fresh: true});
+	}
+
+	function runUmaChart() {
+		const chartWorkers = replaceSimulationWorkers();
+		const runId = ++chartRunId.current;
+		const params = {...racedefToParams(racedef, uma1.strategy), rankAware: true, orderRange: null, numUmas: fieldSize};
+		setChartProgress({runId, active: true, completed: 0, total: umaTableCandidates.length * umaChartSamples, workers: {}});
+		setUmaTableData(new Map());
+		setLastUmaTableRun({uma: uma1, otherUma: uma2, courseId, racedef, fieldSize,
+			fieldUmas: fieldUmas.slice(0, Math.max(0, fieldSize - 2)), simulateLanes, fresh: false});
+		const nPerWorker = Math.ceil(umaTableCandidates.length / chartWorkers.length);
+		chartWorkers.forEach((worker, workerIndex) => worker.postMessage({msg: 'uma-chart', data: {
+			candidates: umaTableCandidates.slice(workerIndex * nPerWorker, (workerIndex + 1) * nPerWorker), samples: umaChartSamples,
+			runId, workerId: workerIndex + 1, course, racedef: params, uma: uma1, otherUma: uma2,
+			options: {seed, usePosKeep, useCompeteTop, useIntChecks, fieldSize,
+				simulateLanes, fieldUmas: fieldUmas.slice(0, Math.max(0, fieldSize - 2))}
+		}}));
 	}
 
 	function doBasinnChart() {
 		postEvent('doBasinnChart', {});
 		const params = racedefToParams(racedef, uma1.strategy);
-		const skills = getActivateableSkills(chartMode != 'all' ? chartSkillsForMode(chartMode) : baseSkillsToTest.filter(id => {
-			const existing = uma1.skills.get(skillmeta[id].groupId);
-			const group = skillGroups.get(skillmeta[id].groupId);
-			const skillSet = Array.from(uma1.skills.values());
-			return !(
-				existing == id || group.indexOf(id) < group.indexOf(existing)
-				|| id[0] == '9' && skillSet.includes('1' + id.slice(1))  // reject inherited uniques if we already have the regular version
-				|| id[0] == '9' && id.length > 6 && skillSet.includes(id.slice(2))  // evolved inherited uniques
-			);
-		}), uma1, course, params);
-		setLastChartRun({uma: uma1, courseId, racedef, skills, fresh: false});
-		runBasinnChart(uma1, params, skills);
+		const chartParams = rankAwareField ? {...params, rankAware: true, orderRange: null, numUmas: fieldSize} : params;
+		const skills = getActivateableSkills(chartSkillsForMode(chartMode), uma1, course, chartParams, rankAwareField);
+		setLastChartRun({
+			uma: uma1,
+			otherUma: uma2,
+			courseId,
+			racedef,
+			skills,
+			rankAwareField,
+			simulateLanes,
+			fieldSize,
+			fieldUmas: fieldUmas.slice(0, Math.max(0, fieldSize - 2)),
+			fresh: false
+		});
+		runBasinnChart(uma1, uma2, params, skills);
+	}
+
+	function doChart() {
+		if (chartTableType == 'umas') {
+			postEvent('doUmaChart', {});
+			runUmaChart();
+		} else {
+			doBasinnChart();
+		}
 	}
 
 	function basinnChartSelection(skillId) {
@@ -943,12 +1626,52 @@ function Umalator(props) {
 		});
 	});
 
-	const umaTabs = useMemo(() => (
+	const staminaTabs = useMemo(() => (
 		<div class="umaTabs">
-			<div class={`umaTab ${currentIdx == 0 ? 'selected' : ''}`} onClick={() => setCurrentIdx(0)}><span><Text id={mode == Mode.Compare ? "ui.uma1" : "ui.uma"} /></span></div>
-			{mode != Mode.Chart && <div class={`umaTab ${currentIdx == 1 ? 'selected' : ''}`} onClick={() => setCurrentIdx(1)}><span><Text id={mode == Mode.Compare ? "ui.uma2" : "ui.debuffer"} /></span><div id="expandBtn" title="Expand panel" onClick={toggleExpand} /></div>}
+			<div class={`umaTab ${staminaEditor == 'uma' ? 'selected' : ''}`} onClick={() => setStaminaEditor('uma')}><span><Text id="ui.uma" /></span></div>
+			<div class={`umaTab ${staminaEditor == 'debuffer' ? 'selected' : ''}`} onClick={() => setStaminaEditor('debuffer')}><span><Text id="ui.debuffer" /></span></div>
 		</div>
-	), [currentIdx, mode]);
+	), [staminaEditor]);
+
+	const chartEvaluationControls = mode == Mode.Chart && (
+		<section id="chartEvaluationControls" aria-label="Evaluation setup">
+			<div class="evaluationTabs" role="tablist" aria-label="Evaluation type">
+				<button role="tab" aria-selected={chartTableType == 'skills'} class={chartTableType == 'skills' ? 'selected' : ''} onClick={() => setChartTableType('skills')}>
+					<strong>Skills</strong><small>Compare added skills against the current Uma 1 build</small>
+				</button>
+				<button role="tab" aria-selected={chartTableType == 'umas'} class={chartTableType == 'umas' ? 'selected' : ''} onClick={() => setChartTableType('umas')}>
+					<strong>Umas</strong><small>Compare each unique against a same-style no-unique baseline</small>
+				</button>
+			</div>
+			<div class="evaluationOptions">
+				{chartTableType == 'umas' ? <Fragment>
+					<label class="evaluationSampleInput" for="umaChartSamples">Samples per Uma
+						<input id="umaChartSamples" type="number" min="1" max="50" value={umaChartSamples} onInput={e => setUmaChartSamples(Math.max(1, Math.min(50, Math.trunc(+e.currentTarget.value) || 1)))} />
+					</label>
+					<p>Uses Uma 1's non-unique skills and simulation settings. Every candidate uses her default running style.</p>
+				</Fragment> : <Fragment>
+					<fieldset id="basinnChartSelect" aria-label="Skills to evaluate">
+						<div><input type="radio" id="basinnChartSelectAll" name="basinnChartSelection" value="all" checked={chartMode == 'all'} onClick={switchChartMode} /><label for="basinnChartSelectAll"><Text id="ui.basinnchartselection.all" /></label></div>
+						<div><input type="radio" id="basinnChartSelectInherit" name="basinnChartSelection" value="inherit" checked={chartMode == 'inherit'} onClick={switchChartMode} /><label for="basinnChartSelectInherit"><Text id="ui.basinnchartselection.inherit" /></label></div>
+						<div><input type="radio" id="basinnChartSelectSelected" name="basinnChartSelection" value="selected" checked={chartMode == 'selected'} onClick={switchChartMode} /><label for="basinnChartSelectSelected"><Text id="ui.basinnchartselection.selected" /></label></div>
+					</fieldset>
+					<div id="basinnChartSelectButtons" class={chartMode == 'selected' ? '' : 'hidden'}>
+						<button class="stdBtn btnType2" onClick={clearChartSkills}><Text id="ui.basinnchartselection.clear" /></button>
+						<button class="stdBtn btnType1" onClick={setChartSkillPickerOpen.bind(null, true)}><Text id="ui.basinnchartselection.addskill" /></button>
+					</div>
+				</Fragment>}
+				<button class="stdBtn btnType1 evaluationRun" onClick={doChart}>{chartProgress.active ? 'Restart' : 'Run'} {chartTableType == 'umas' ? 'Uma evaluation' : 'skill evaluation'}</button>
+			</div>
+			{chartProgress.active && <div id="chartProgress" role="status" aria-live="polite">
+				<div class="chartProgressHeader"><span>{chartTableType == 'umas' ? 'Simulating umas…' : 'Simulating skills…'}</span><span>{chartProgress.total > 0 ? Math.floor(100 * chartProgress.completed / chartProgress.total) : 0}%</span><button class="chartProgressStop" onClick={stopBasinnChart}>Stop</button></div>
+				<progress max={chartProgress.total || 1} value={Math.min(chartProgress.completed, chartProgress.total || 1)} />
+			</div>}
+			<div class={`horseSkillPickerOverlay ${chartSkillPickerOpen ? "open" : ""}`} onClick={setChartSkillPickerOpen.bind(null, false)} />
+			<div class={`horseSkillPickerWrapper ${chartSkillPickerOpen ? "open" : ""}`}>
+				<SkillList ids={nonPurpleSkills.filter(isAvailableSkillUpgrade)} selectionMode="all" selected={chartSkillsMap} setSelected={setChartSkillsAndClose} isOpen={chartSkillPickerOpen} />
+			</div>
+		</section>
+	);
 
 	let resultsPane;
 	if (mode == Mode.Compare && results.length > 0) {
@@ -956,7 +1679,8 @@ function Umalator(props) {
 		const median = results.length % 2 == 0 ? (results[mid-1] + results[mid]) / 2 : results[mid];
 		const mean = results.reduce((a,b) => a+b, 0) / results.length;
 		resultsPane = (
-			<div id="resultsPaneWrapper">
+			<div id="resultsPaneWrapper" class="compareResultsWrapper">
+				<div id="compareResultsTop">
 				<div id="resultsPane" class="mode-compare">
 					<table id="resultsSummary">
 						<tfoot>
@@ -981,6 +1705,7 @@ function Umalator(props) {
 						</tbody>
 					</table>
 					<div id="resultsHelp"><MarkupText id="ui.resultshelp" /></div>
+					<WinRateSummary winRate={runData.winRate} fieldWinRate={runData.fieldWinRate} />
 					<Histogram width={500} height={333} data={results} splitColors={true} />
 				</div>
 				<div id="infoTables">
@@ -989,6 +1714,10 @@ function Umalator(props) {
 						<ResultsTable caption={<Text id="ui.uma2" />} class="uma2" chartData={chartData} idx={1} spurtRate={runData.nspurt[1] / results.length} />
 					</Localizer>
 				</div>
+				</div>
+				{runData.medianrun?.fieldReplay && <RaceReplay replay={runData.medianrun.fieldReplay} course={course}
+					simulateLanes={!!runData.experimental?.simulateLanes} />}
+				{runData.monteCarlo && <MonteCarloAnalysis stats={runData.monteCarlo} courseDistance={course.distance} />}
 			</div>
 		);
 	} else if (mode == Mode.StaCalc && results.remainingHp != null) {
@@ -1000,10 +1729,26 @@ function Umalator(props) {
 			</div>
 		);
 	} else if (mode == Mode.Chart) {
-		const dirty = !horseEquals(uma1, lastChartRun.uma) || courseId != lastChartRun.courseId || !shallowEquals(racedef, lastChartRun.racedef) || (chartMode == 'selected' ? chartSkills.some(id => lastChartRun.skills.indexOf(id) == -1) : lastChartRun.fresh);
+		if (chartTableType == 'umas') {
+			const currentFieldUmas = fieldUmas.slice(0, Math.max(0, fieldSize - 2));
+			const fieldChanged = lastUmaTableRun == null || fieldSize != lastUmaTableRun.fieldSize || simulateLanes != lastUmaTableRun.simulateLanes ||
+				currentFieldUmas.length != lastUmaTableRun.fieldUmas.length || currentFieldUmas.some((uma, index) => !horseEquals(uma, lastUmaTableRun.fieldUmas[index]));
+			const dirty = lastUmaTableRun == null || !horseEquals(uma1, lastUmaTableRun.uma) || !horseEquals(uma2, lastUmaTableRun.otherUma) ||
+				courseId != lastUmaTableRun.courseId || !shallowEquals(racedef, lastUmaTableRun.racedef) || fieldChanged || lastUmaTableRun.fresh;
+			resultsPane = <div id="resultsPaneWrapper"><div id="resultsPane" class="mode-chart">{chartEvaluationControls}<div id="basinnChartWrapperWrapper">
+				<UmaChart data={Array.from(umaTableData.values())} candidates={umaTableCandidates} dirty={dirty} />
+				<button id="basinnChartRefresh" class={dirty ? '' : 'hidden'} onClick={doChart}>⟲</button>
+			</div></div></div>;
+		} else {
+		const currentFieldUmas = fieldUmas.slice(0, Math.max(0, fieldSize - 2));
+		const fieldChanged = rankAwareField != lastChartRun.rankAwareField || simulateLanes != lastChartRun.simulateLanes || fieldSize != lastChartRun.fieldSize ||
+			currentFieldUmas.length != lastChartRun.fieldUmas.length ||
+			currentFieldUmas.some((uma, index) => !horseEquals(uma, lastChartRun.fieldUmas[index]));
+		const dirty = !horseEquals(uma1, lastChartRun.uma) || !horseEquals(uma2, lastChartRun.otherUma) || courseId != lastChartRun.courseId || !shallowEquals(racedef, lastChartRun.racedef) || fieldChanged || (chartMode == 'selected' ? chartSkills.some(id => lastChartRun.skills.indexOf(id) == -1) : lastChartRun.fresh);
 		resultsPane = (
 			<div id="resultsPaneWrapper">
 				<div id="resultsPane" class="mode-chart">
+					{chartEvaluationControls}
 					<div id="basinnChartWrapperWrapper">
 						<BasinnChart data={Array.from(tableData.values())} hasSkills={lastChartRun.uma.skills}
 							dirty={dirty}
@@ -1019,6 +1764,7 @@ function Umalator(props) {
 				</div>
 			</div>
 		);
+		}
 	} else if (CC_GLOBAL) {
 		resultsPane = (
 			<div id="resultsPaneWrapper">
@@ -1034,30 +1780,24 @@ function Umalator(props) {
 	return (
 		<Language.Provider value={props.lang}>
 			<IntlProvider definition={strings}>
-				{expanded && <div id="umaPane" />}
-				<div id={expanded ? 'umaOverlay' : 'umaPane'}>
-					<div class={!expanded && currentIdx == 0 ? 'selected' : ''}>
+				<div id="umaPane">
+					{mode != Mode.StaCalc && <div class="umaPaneTabs" role="tablist" aria-label="Uma editor">
+						<button role="tab" aria-selected={umaPaneTab == 'uma1'} class={umaPaneTab == 'uma1' ? 'selected' : ''} onClick={() => setUmaPaneTab('uma1')}>Uma 1</button>
+						<button role="tab" aria-selected={umaPaneTab == 'other'} class={umaPaneTab == 'other' ? 'selected' : ''} onClick={() => setUmaPaneTab('other')}>Other Umas</button>
+					</div>}
+					<div class={`umaEditorPanel ${mode != Mode.StaCalc ? (umaPaneTab == 'uma1' ? 'selected' : '') : (staminaEditor == 'uma' ? 'selected' : '')}`}>
 						<HorseDef key={uma1.outfitId} state={O.uma1} aptitudesMode="simulation" course={course} showPolicyEd={true} tabstart={() => 4}>
-							{expanded ? <Text id={mode == Mode.Compare ? "ui.uma1" : "ui.uma"} /> : umaTabs}
+							{mode == Mode.StaCalc ? staminaTabs : <Text id="ui.uma1" />}
 						</HorseDef>
 					</div>
-					{expanded &&
-						<div id="copyUmaButtons">
-							<div id="copyUmaToRight" title="Copy uma 1 to uma 2" onClick={copyUmaToRight} />
-							<div id="copyUmaToLeft" title="Copy uma 2 to uma 1" onClick={copyUmaToLeft} />
-							<div id="swapUmas" title="Swap umas" onClick={swapUmas}>⮂</div>
-						</div>}
-					{mode != Mode.Chart && <div class={!expanded && currentIdx == 1 ? 'selected' : ''}>
-						{mode == Mode.StaCalc
-							? <HorseDef key={'d'+debufUma.outfitId} state={O.debufUma} aptitudesMode="simulation" course={course} showPolicyEd={true} tabstart={() => 4 + horseDefTabs()}>
-								{expanded ? <Text id="ui.debuffer" /> : umaTabs}
-							</HorseDef>
-							: <HorseDef key={uma2.outfitId} state={O.uma2} aptitudesMode="simulation" course={course} showPolicyEd={true} tabstart={() => 4 + horseDefTabs()}>
-								{expanded ? <Text id="ui.uma2" /> : umaTabs}
-							</HorseDef>
-						}
+					{mode != Mode.StaCalc && <div class={`umaEditorPanel ${umaPaneTab == 'other' ? 'selected' : ''}`}>
+						<OpponentRoster key={`other-${umaPaneTab}`} embedded course={course} courseId={courseId} fieldSize={fieldSize} setFieldSize={setFieldSize} uma1={uma1} uma2={uma2} fieldEnabled={rankAwareField} />
 					</div>}
-					{expanded && <div id="closeUmaOverlay" title="Close panel" onClick={toggleExpand}>✕</div>}
+					{mode == Mode.StaCalc && <div class={`umaEditorPanel ${staminaEditor == 'debuffer' ? 'selected' : ''}`}>
+						<HorseDef key={debufUma.outfitId} state={O.debufUma} aptitudesMode="simulation" course={course} showPolicyEd={true} tabstart={() => 4 + horseDefTabs()}>
+							{staminaTabs}
+						</HorseDef>
+					</div>}
 				</div>
 				<div id="nonUmaPanes">
 					<div id="midPane" class={chartData ? 'hasResults' : ''}>
@@ -1087,13 +1827,14 @@ function Umalator(props) {
 						{resultsPane}
 					</div>
 					<div id="sidebar">
-						<label for="nsamples"><Text id="ui.sidebar.samples" /></label>
-						<input type="number" id="nsamples" min="1" max="10000" value={nsamples} onInput={(e) => setSamples(+e.currentTarget.value)} />
-						<label for="seed"><Text id="ui.sidebar.seed" /></label>
+						<div class="sidebarSetting"><label for="nsamples"><Text id="ui.sidebar.samples" /></label>
+							<input type="number" id="nsamples" min="1" max="10000" value={nsamples} onInput={(e) => setSamples(+e.currentTarget.value)} />
+						</div>
+						<div class="sidebarSetting"><label for="seed"><Text id="ui.sidebar.seed" /></label>
 						<div id="seedWrapper">
 							<input type="number" id="seed" value={seed} onInput={(e) => setSeed(+e.currentTarget.value)} />
 							<button title="Randomize seed" onClick={() => setSeed(Math.floor(Math.random() * (-1 >>> 0)) >>> 0)}>🎲</button>
-						</div>
+						</div></div>
 						<div>
 							<label for="poskeep"><Text id="ui.sidebar.poskeep" /></label>
 							<input type="checkbox" id="poskeep" checked={usePosKeep} onClick={togglePosKeep} />
@@ -1110,42 +1851,31 @@ function Umalator(props) {
 							<label for="showhp"><Text id="ui.sidebar.showhp" /></label>
 							<input type="checkbox" id="showhp" checked={showHp} onClick={toggleShowHp} />
 						</div>
+		{mode != Mode.StaCalc && <div title="Shared-clock field simulation with editable runners, live ranks, longitudinal proximity, and targeted effects. Lane-qualified blocking conditions use a documented distance-only approximation; lanes and physical blocking slowdown are not modeled. Experimental skill-table rows use adaptive 5/10/20/30/50-sample checkpoints and stop when absolute or relative variance is low, the mean and variance stabilize, or the paired mean's 95% confidence interval is sufficiently narrow. Random skills receive a 20-sample safeguard when their track-specific effects can plausibly matter; irrelevant early/mid-race acceleration keeps the five-sample fast path. Legacy mode uses 200 samples.">
+							<label for="rankAwareField">Experimental full-field ranks</label>
+							<input type="checkbox" id="rankAwareField" checked={rankAwareField} onClick={toggleRankAwareField} />
+						</div>}
+		{mode != Mode.StaCalc && <div title="Simulate continuous lateral position, lane target selection, and documented front/side blocking geometry. Physical blocking slowdown remains disabled.">
+							<label for="simulateLanes">Experimental lane movement</label>
+							<input type="checkbox" id="simulateLanes" checked={simulateLanes} onClick={toggleSimulateLanes} disabled={!rankAwareField} />
+						</div>}
+						{mode != Mode.StaCalc && <div class={!rankAwareField ? 'optionUnavailable' : ''}>
+							<label for="fieldSize">Field size</label>
+							<input type="number" id="fieldSize" min="2" max="18" value={fieldSize} onInput={(e) => setFieldSize(Math.max(2, Math.min(18, +e.currentTarget.value)))} disabled={!rankAwareField} />
+						</div>}
 						{
 							[
 								<button id="run" class="stdBtn btnType1" onClick={doComparison} tabindex={1}><Text id="ui.sidebar.run.compare" /></button>,
-								<button id="run" class="stdBtn btnType1" onClick={doBasinnChart} tabindex={1}><Text id="ui.sidebar.run.chart" /></button>,
+								null,
 								<button id="run" class="stdBtn btnType1" onClick={doStaCalc} tabindex={1}><Text id="ui.sidebar.run.stacalc" /></button>,
 							][mode]
 						}
+		{mode == Mode.Compare && compareProgress.active && <div id="chartProgress" role="status" aria-live="polite">
+			<div class="chartProgressHeader"><span>Simulating races…</span><span>{compareProgress.total > 0 ? Math.floor(100 * compareProgress.completed / compareProgress.total) : 0}%</span></div>
+			<progress max={compareProgress.total || 1} value={Math.min(compareProgress.completed, compareProgress.total || 1)} />
+		</div>}
 						<a ref={copyLinkLink} href="#" onClick={copyStateUrl} onContextMenu={updateCopyLinkHref}><Text id="ui.sidebar.copylink" /></a>
 						<div class="spacer" />
-						{
-							mode == Mode.Chart &&
-								<div id="extendedOptionsRow">
-									<fieldset id="basinnChartSelect">
-										<div>
-											<input type="radio" id="basinnChartSelectAll" name="basinnChartSelection" value="all" checked={chartMode == 'all'} onClick={switchChartMode} />
-											<label for="basinnChartSelectAll"><Text id="ui.basinnchartselection.all" /></label>
-										</div>
-										<div>
-											<input type="radio" id="basinnChartSelectInherit" name="basinnChartSelection" value="inherit" checked={chartMode == 'inherit'} onClick={switchChartMode} />
-											<label for="basinnChartSelectInherit"><Text id="ui.basinnchartselection.inherit" /></label>
-										</div>
-										<div>
-											<input type="radio" id="basinnChartSelectSelected" name="basinnChartSelection" value="selected" checked={chartMode == 'selected'} onClick={switchChartMode} />
-											<label for="basinnChartSelectSelected"><Text id="ui.basinnchartselection.selected" /></label>
-										</div>
-									</fieldset>
-									<div id="basinnChartSelectButtons">
-										<button class="stdBtn btnType2" style={chartMode == 'selected' ? '' : 'visibility:hidden'} onClick={clearChartSkills}><Text id="ui.basinnchartselection.clear" /></button>
-										<button class="stdBtn btnType1" style={chartMode == 'selected' ? '' : 'visibility:hidden'} onClick={setChartSkillPickerOpen.bind(null, true)}><Text id="ui.basinnchartselection.addskill" /></button>
-									</div>
-									<div class={`horseSkillPickerOverlay ${chartSkillPickerOpen ? "open" : ""}`} onClick={setChartSkillPickerOpen.bind(null, false)} />
-									<div class={`horseSkillPickerWrapper ${chartSkillPickerOpen ? "open" : ""}`}>
-										<SkillList ids={nonPurpleSkills} selectionMode="all" selected={chartSkillsMap} setSelected={setChartSkillsAndClose} isOpen={chartSkillPickerOpen} />
-									</div>
-								</div>
-						}
 						{
 							mode == Mode.StaCalc &&
 								<div id="extendedOptionsRow">
@@ -1171,9 +1901,13 @@ function App(props) {
 		usePosKeep: true,
 		useCompeteTop: true,
 		useIntChecks: false,
+		rankAwareField: false,
+		simulateLanes: false,
+		fieldSize: 9,
 		showHp: false,
 		uma1: DEFAULT_HORSE_STATE,
 		uma2: DEFAULT_HORSE_STATE,
+		fieldUmas: makeDefaultOpponentRoster(DEFAULT_HORSE_STATE, DEFAULT_HORSE_STATE),
 		debufUma: DEFAULT_HORSE_STATE,
 		courseId: DEFAULT_COURSE_ID,
 		displayedRun: 'meanrun',

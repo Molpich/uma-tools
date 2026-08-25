@@ -10,6 +10,7 @@ import { ActivationSamplePolicy, ImmediatePolicy, RandomPolicy, LogNormalRandomP
 import { HorseState, SamplePolicyDesc, uniqueSkillForUma } from '../components/HorseDefTypes';
 
 import skillmeta from '../skill_meta.json';
+import { accumulateMonteCarloRun, createMonteCarloAccumulator, summarizeMonteCarlo } from './montecarlo';
 
 class FixedDistancePolicy {
 	constructor(readonly pos: number) {}
@@ -45,7 +46,7 @@ export function getActivator(selfSet: Map<string, [number,number]>, otherSet: Ma
 			skillSet.set('downhill', skillSet.get('downhill') - s.accumulatetime.t);
 		} else if (skillSet != null && id != 'asitame' && id != 'staminasyoubu') {
 			if (!skillSet.has(id)) skillSet.set(id, []);
-			skillSet.get(id).push([s.pos, -1]);
+			skillSet.get(id).push([s.pos, -1, s.accumulatetime.t, -1]);
 		}
 	};
 }
@@ -64,7 +65,10 @@ export function getDeactivator(selfSet: Map<string, [number,number]>, otherSet: 
 			const r = ar.find(x => x[1] == -1);
 			// onSkillDeactivate gets called twice for skills that have both speed and accel components, so the end
 			// position could already have been filled out and r will be undefined
-			if (r != null) r[1] = Math.min(s.pos, course.distance);
+			if (r != null) {
+				r[1] = Math.min(s.pos, course.distance);
+				r[3] = s.accumulatetime.t;
+			}
 		}
 	};
 }
@@ -111,6 +115,13 @@ export function runComparison(nsamples: number, course: CourseData, racedef: Rac
 	// TODO i don't really like this, this might just be masking some deeper underlying issue.
 	uma1.skills.forEach(id => compare.addSkill(id, Perspective.Other, id == u1id ? uma1.uniqueLv : 1, instantiateSamplePolicy(uma1.samplePolicies.get(id))));
 	uma2.skills.forEach(id => standard.addSkill(id, Perspective.Other, id == u2id ? uma2.uniqueLv : 1, instantiateSamplePolicy(uma2.samplePolicies.get(id))));
+	if (options.pairSkillRngByGroup) {
+		const sampleGroups = new Map<string,string>();
+		Array.from(uma1.skills.values()).concat(Array.from(uma2.skills.values()))
+			.forEach(id => sampleGroups.set(id, skillmeta[id].groupId));
+		standard.withIndependentSkillSamples(sampleGroups);
+		compare.withIndependentSkillSamples(sampleGroups);
+	}
 	standard.withAsiwotameru();
 	compare.withAsiwotameru();
 	if (!CC_GLOBAL) {
@@ -127,6 +138,11 @@ export function runComparison(nsamples: number, course: CourseData, racedef: Rac
 		standard.withWisdomChecks(wisdomSeeds);
 		compare.withWisdomChecks(wisdomSeeds);
 	}
+	// Keep pristine configured builders for the representative-run replay. A
+	// builder's RNG state is consumed by build(), so the second pass must use
+	// clones made before the first pass begins.
+	const replayStandard = standard.fork();
+	const replayCompare = compare.fork();
 	const skillPos1 = new Map(), skillPos2 = new Map();
 	standard.onSkillActivate(getActivator(skillPos1, null));
 	standard.onSkillDeactivate(getDeactivator(skillPos1, null, course));
@@ -136,10 +152,14 @@ export function runComparison(nsamples: number, course: CourseData, racedef: Rac
 	let ai = 1, bi = 0;
 	let sign = 1;
 	const diff = [];
-	let min = Infinity, max = -Infinity, estMean, estMedian, bestMeanDiff = Infinity, bestMedianDiff = Infinity;
+	const indexedResults: {value: number, index: number}[] = [];
+	let min = Infinity, max = -Infinity;
 	let minrun, maxrun, meanrun, medianrun;
+	let minrunIndex = -1, maxrunIndex = -1;
 	let nspurt = [0,0];
-	const sampleCutoff = Math.max(Math.floor(nsamples * 0.8), nsamples - 200);
+	const wins = [0, 0], fieldWins = [0, 0];
+	let ties = 0, fieldTies = 0;
+	const monteCarlo = createMonteCarloAccumulator([uma1.skills.values(), uma2.skills.values()]);
 	let retry = false;
 	for (let i = 0; i < nsamples; ++i) {
 		const s1 = a.next(retry).value as RaceSolver;
@@ -195,37 +215,132 @@ export function runComparison(nsamples: number, course: CourseData, racedef: Rac
 			retry = true;
 		} else {
 			retry = false;
+			accumulateMonteCarloRun(monteCarlo, data, course.distance);
 			nspurt[bi] += +(s1.isLastSpurt && s1.lastSpurtTransition == -1);
 			nspurt[ai] += +(s2.isLastSpurt && s2.lastSpurtTransition == -1);
 			const basinn = sign * (s2.pos - pos1) / 2.5;
+			const acceptedIndex = diff.length;
 			diff.push(basinn);
+			indexedResults.push({value: basinn, index: acceptedIndex});
+			if (basinn < 0) ++wins[0];
+			else if (basinn > 0) ++wins[1];
+			else ++ties;
+			// In the two-runner legacy path, the field winner is the same as the
+			// head-to-head winner (and this remains correct across retry swaps).
+			if (basinn < 0) ++fieldWins[0];
+			else if (basinn > 0) ++fieldWins[1];
+			else ++fieldTies;
 			if (basinn < min) {
 				min = basinn;
 				minrun = data;
+				minrunIndex = acceptedIndex;
 			}
 			if (basinn > max) {
 				max = basinn;
 				maxrun = data;
+				maxrunIndex = acceptedIndex;
 			}
-			if (i == sampleCutoff) {
-				diff.sort((a,b) => a - b);
-				estMean = diff.reduce((a,b) => a + b) / diff.length;
-				const mid = Math.floor(diff.length / 2);
-				estMedian = mid > 0 && diff.length % 2 == 0 ? (diff[mid-1] + diff[mid]) / 2 : diff[mid];
-			}
-			if (i >= sampleCutoff) {
-				const meanDiff = Math.abs(basinn - estMean), medianDiff = Math.abs(basinn - estMedian);
-				if (meanDiff < bestMeanDiff) {
-					bestMeanDiff = meanDiff;
-					meanrun = data;
-				}
-				if (medianDiff < bestMedianDiff) {
-					bestMedianDiff = medianDiff;
-					medianrun = data;
-				}
-			}
+			options.onProgress?.(acceptedIndex + 1, nsamples * 2);
 		}
 	}
+	const rawResults = diff.slice();
+	const orderedRuns = indexedResults.slice().sort((x,y) => x.value - y.value || x.index - y.index);
+	const mean = rawResults.reduce((sum,value) => sum + value, 0) / rawResults.length;
+	const meanRecord = indexedResults.reduce((best,current) =>
+		Math.abs(current.value - mean) < Math.abs(best.value - mean) ? current : best);
+	const mid = Math.floor(orderedRuns.length / 2);
+	// For an even sample count the mathematical median is between two actual
+	// runs. Use the lower-middle run (for 500 samples, the 250th sorted run) as
+	// the concrete trajectory shown by the UI.
+	const medianRecord = orderedRuns.length % 2 == 0 ? orderedRuns[mid - 1] : orderedRuns[mid];
+
+	const replayTargets = new Set<number>();
+	if (meanRecord.index == minrunIndex) meanrun = minrun;
+	else if (meanRecord.index == maxrunIndex) meanrun = maxrun;
+	else replayTargets.add(meanRecord.index);
+	if (medianRecord.index == minrunIndex) medianrun = minrun;
+	else if (medianRecord.index == maxrunIndex) medianrun = maxrun;
+	else replayTargets.add(medianRecord.index);
+
+	if (replayTargets.size > 0) {
+		const replaySkillPos1 = new Map(), replaySkillPos2 = new Map();
+		replayStandard.onSkillActivate(getActivator(replaySkillPos1, null));
+		replayStandard.onSkillDeactivate(getDeactivator(replaySkillPos1, null, course));
+		replayCompare.onSkillActivate(getActivator(replaySkillPos2, null));
+		replayCompare.onSkillDeactivate(getDeactivator(replaySkillPos2, null, course));
+		let replayA = replayStandard.build(), replayB = replayCompare.build();
+		let replayAi = 1, replayBi = 0;
+		let replayRetry = false;
+		const replayed = new Map<number, any>();
+		for (let i = 0; i < nsamples && replayed.size < replayTargets.size; ++i) {
+			const record = replayTargets.has(i);
+			const s1 = replayA.next(replayRetry).value as RaceSolver;
+			const s2 = replayB.next(replayRetry).value as RaceSolver;
+			const data = {t: [[], []], p: [[], []], v: [[], []], hp: [[], []], sk: [null,null], sdly: [0,0], dh: [0,0]};
+			while (s2.pos < course.distance) {
+				s2.step(1/15);
+				if (record) {
+					data.t[replayAi].push(s2.accumulatetime.t);
+					data.p[replayAi].push(s2.pos);
+					data.v[replayAi].push(s2.currentSpeed + s2.modifiers.currentSpeed.acc + s2.modifiers.currentSpeed.err);
+					data.hp[replayAi].push((s2.hp as GameHpPolicy).hp);
+				}
+			}
+			if (record) data.sdly[replayAi] = s2.startDelay;
+			while (s1.accumulatetime.t < s2.accumulatetime.t) {
+				s1.step(1/15);
+				if (record) {
+					data.t[replayBi].push(s1.accumulatetime.t);
+					data.p[replayBi].push(s1.pos);
+					data.v[replayBi].push(s1.currentSpeed + s1.modifiers.currentSpeed.acc + s1.modifiers.currentSpeed.err);
+					data.hp[replayBi].push((s1.hp as GameHpPolicy).hp);
+				}
+			}
+			const pos1 = s1.pos;
+			while (s1.pos < course.distance) {
+				s1.step(1/15);
+				if (record) {
+					data.t[replayBi].push(s1.accumulatetime.t);
+					data.p[replayBi].push(s1.pos);
+					data.v[replayBi].push(s1.currentSpeed + s1.modifiers.currentSpeed.acc + s1.modifiers.currentSpeed.err);
+					data.hp[replayBi].push((s1.hp as GameHpPolicy).hp);
+				}
+			}
+			if (record) data.sdly[replayBi] = s1.startDelay;
+			s2.cleanup();
+			s1.cleanup();
+			if (record) {
+				data.dh[1] = replaySkillPos2.get('downhill') || 0;
+				data.dh[0] = replaySkillPos1.get('downhill') || 0;
+			}
+			replaySkillPos2.delete('downhill');
+			replaySkillPos1.delete('downhill');
+			if (record) {
+				data.sk[1] = new Map(replaySkillPos2);
+				data.sk[0] = new Map(replaySkillPos1);
+			}
+			replaySkillPos2.clear();
+			replaySkillPos1.clear();
+			if (s2.pos < pos1 || isNaN(pos1)) {
+				[replayB,replayA] = [replayA,replayB];
+				[replayBi,replayAi] = [replayAi,replayBi];
+				--i;
+				replayRetry = true;
+			} else {
+				replayRetry = false;
+				if (record) replayed.set(i, data);
+				options.onProgress?.(nsamples + i + 1, nsamples * 2);
+			}
+		}
+		if (meanrun == null) meanrun = replayed.get(meanRecord.index);
+		if (medianrun == null) medianrun = replayed.get(medianRecord.index);
+	}
+	options.onProgress?.(nsamples * 2, nsamples * 2);
 	diff.sort((a,b) => a - b);
-	return {results: diff, runData: {nspurt, minrun, maxrun, meanrun, medianrun}};
+	return {results: diff, rawResults, runData: {
+		nspurt, minrun, maxrun, meanrun, medianrun,
+		winRate: {wins, ties, total: nsamples},
+		fieldWinRate: {wins: fieldWins, ties: fieldTies, total: nsamples},
+		monteCarlo: summarizeMonteCarlo(monteCarlo)
+	}};
 }

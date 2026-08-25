@@ -14,6 +14,7 @@ import { Region, RegionList } from '../uma-skill-tools/Region';
 import { CourseData } from '../uma-skill-tools/CourseData';
 import { RaceParameters } from '../uma-skill-tools/RaceParameters';
 import { getParser } from '../uma-skill-tools/ConditionParser';
+import { FieldConditions } from '../uma-skill-tools/ActivationConditions';
 import { buildBaseStats, buildSkillData, Perspective } from '../uma-skill-tools/RaceSolverBuilder';
 
 import { HorseState, umaForUniqueSkill } from '../components/HorseDefTypes';
@@ -27,15 +28,18 @@ import skilldata from '../uma-skill-tools/data/skill_data.json';
 import skillnames from '../uma-skill-tools/data/skillnames.json';
 import skillmeta from '../skill_meta.json';
 
-export function getActivateableSkills(skills: string[], horse: HorseState, course: CourseData, racedef: RaceParameters) {
-	const parser = getParser();
+export function getActivateableSkills(skills: string[], horse: HorseState, course: CourseData, racedef: RaceParameters, rankAwareField = false) {
+	// Field-only conditions (for example near_count and is_overtake) are
+	// dynamic in the shared-clock simulator. Use the same condition set here
+	// so the skill table does not discard those skills before the worker runs.
+	const parser = getParser(rankAwareField ? FieldConditions : undefined);
 	const h2 = buildBaseStats(horse);
 	const wholeCourse = new RegionList();
 	wholeCourse.push(new Region(0, course.distance));
 	return skills.filter(id => {
 		let sd;
 		try {
-			sd = buildSkillData(h2, h2, racedef, course, wholeCourse, parser, id, Perspective.Any);
+			sd = buildSkillData(h2, racedef, course, wholeCourse, parser, id, Perspective.Any, 1, false, h2);
 		} catch (_) {
 			return false;
 		}
@@ -49,6 +53,15 @@ export function getNullRow(skillid: string) {
 
 function formatBasinn(info) {
 	return info.getValue().toFixed(2).replace('-0.00', '0.00') + ' L';
+}
+
+function resultShare(row, predicate) {
+	return row.results.length == 0 ? NaN : row.results.reduce((count, value) => count + +predicate(value), 0) / row.results.length;
+}
+
+function formatPercent(info) {
+	const value = info.getValue();
+	return Number.isFinite(value) ? `${(100 * value).toFixed(1)}%` : '--';
 }
 
 const SkillNameCell = memo(function SkillNameCell(props) {
@@ -105,6 +118,24 @@ export function BasinnChart(props) {
 		header: headerRenderer(radioGroup, displayedRun, 'medianrun', 'Median', setDisplayedRun),
 		accessorKey: 'median',
 		cell: formatBasinn,
+		sortDescFirst: true
+	}, {
+		header: (c) => <span onClick={c.header.column.getToggleSortingHandler()}>Samples</span>,
+		id: 'samples',
+		accessorFn: (row) => row.results.length,
+		cell: (info) => info.getValue(),
+		sortDescFirst: true
+	}, {
+		header: (c) => <span onClick={c.header.column.getToggleSortingHandler()}>Improved</span>,
+		id: 'improved',
+		accessorFn: (row) => resultShare(row, value => value > 0),
+		cell: formatPercent,
+		sortDescFirst: true
+	}, {
+		header: (c) => <span onClick={c.header.column.getToggleSortingHandler()}>Worsened</span>,
+		id: 'worsened',
+		accessorFn: (row) => resultShare(row, value => value < 0),
+		cell: formatPercent,
 		sortDescFirst: true
 	}, {
 		header: (c) => <span onClick={c.header.column.getToggleSortingHandler()}>SP Cost</span>,

@@ -13,6 +13,8 @@
 	--uma2-color: rgb(255, 111, 183);*/
 	--uma1-color: rgb(42, 119, 197);
 	--uma2-color: rgb(197, 42, 42);
+	/* Compare top row: 571px analysis + 80px gutter + 500px result tables, less panel margins. */
+	--compare-results-panel-width: 1139px;
 }
 
 body {
@@ -92,7 +94,17 @@ button { font-family: Inter, "Noto Sans JP", sans-serif; }
 	flex-direction: column;
 	font-size: 14px;
 	margin: 0 auto;
+	min-width: 180px;
 	padding: 0 8px;
+}
+
+.optionUnavailable {
+	opacity: .5;
+}
+
+.sidebarSetting {
+	display: flex;
+	flex-direction: column;
 }
 
 #seedWrapper {
@@ -228,6 +240,98 @@ button { font-family: Inter, "Noto Sans JP", sans-serif; }
 	width: fit-content;
 }
 
+.compareResultsWrapper {
+	display: block !important;
+	overflow: auto;
+}
+
+#compareResultsTop {
+	display: flex;
+	width: max-content;
+}
+
+#monteCarloAnalysis {
+	background: #fff;
+	border: 2px solid rgb(224, 214, 204);
+	border-radius: 10px;
+	box-sizing: border-box;
+	color: rgb(121, 64, 22);
+	margin: 16px 12px 24px;
+	padding: 12px 16px 20px;
+	width: var(--compare-results-panel-width);
+}
+
+#monteCarloAnalysis h2, #monteCarloAnalysis h3 {
+	margin: 0 0 6px;
+}
+
+.analysisNote, .consistencyCheck {
+	font-size: 0.8em;
+	margin: 4px 0 8px;
+}
+
+.analysisLegend {
+	align-items: center;
+	display: flex;
+	font-size: 0.75em;
+	gap: 6px;
+	margin-bottom: 8px;
+}
+
+.analysisLegend span {
+	display: inline-block;
+	height: 3px;
+	margin-left: 10px;
+	width: 24px;
+}
+
+.analysisLegend .uma1Swatch { background: var(--uma1-color); margin-left: 0; }
+.analysisLegend .uma2Swatch { background: var(--uma2-color); }
+.analysisLegend .meanSwatch { background: #222; }
+.analysisLegend .medianSwatch { border-top: 2px dashed #555; height: 0; }
+
+.monteCarloChart {
+	background: #fafafa;
+	border-radius: 6px;
+	display: block;
+	margin: 8px 0;
+}
+
+.chartTitle, .axisLabel {
+	fill: rgb(121, 64, 22);
+	font-size: 12px;
+	font-weight: bold;
+}
+
+.leadBandOuter { fill: rgba(89, 126, 164, 0.16); }
+.leadBandInner { fill: rgba(89, 126, 164, 0.30); }
+.zeroLine { stroke: #777; stroke-dasharray: 2,3; }
+
+.activationStats { margin-top: 18px; }
+
+.activationTable {
+	border-collapse: collapse;
+	font-size: 0.78em;
+	margin: 10px 0 18px;
+	table-layout: fixed;
+	width: 100%;
+}
+
+.activationTable caption {
+	color: #fff;
+	font-weight: bold;
+	padding: 4px 8px;
+	text-align: left;
+}
+
+.activationTable.uma1 caption { background: var(--uma1-color); }
+.activationTable.uma2 caption { background: var(--uma2-color); }
+.activationTable th, .activationTable td { border-bottom: 1px solid #ddd; padding: 6px; text-align: left; }
+.activationTable th:first-child { width: 24%; }
+.activationTable th:nth-child(2) { width: 14%; }
+.activationTable th:nth-child(3) { width: 12%; }
+.activationTable th img { height: 1.6em; margin-right: 4px; vertical-align: middle; }
+
 #resultsPane {
 	align-items: center;
 	display: flex;
@@ -246,6 +350,14 @@ button { font-family: Inter, "Noto Sans JP", sans-serif; }
 	color: rgb(121, 64, 22);
 	font-size: 0.7em;
 	margin-top: 0.5em;
+}
+
+#winRateSummary {
+	color: rgb(121, 64, 22);
+	font-size: 0.78em;
+	line-height: 1.5;
+	margin: 8px 0;
+	text-align: center;
 }
 
 #resultsSummary {
@@ -319,9 +431,275 @@ strong.uma2 { color: var(--uma2-color); }
 	background: #fff;
 	border-radius: 10px 10px 0 0;
 	height: 1.9em;
-	position: fixed;
+	position: static;
 	text-align: left;
 	width: 476px;
+}
+
+#opponentRoster {
+	margin: 18px;
+	padding: 16px;
+	border: 1px solid #bbb;
+	border-radius: 8px;
+	background: #f7f7f7;
+}
+
+.opponentRosterHeader, .opponentEditorActions {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.opponentEditorActions { justify-content: flex-start; }
+
+.otherUmaTabs {
+	display: grid;
+	gap: 6px;
+	grid-template-columns: 1fr 1fr;
+	margin-top: 10px;
+}
+
+.otherUmaTabs button {
+	background: linear-gradient(#fff, #e4e0e9);
+	border: 1px solid rgb(181, 174, 187);
+	border-radius: 6px;
+	color: rgb(121, 64, 22);
+	font-weight: 700;
+	padding: 8px;
+}
+
+.otherUmaTabs button.selected {
+	background: linear-gradient(rgb(168, 227, 5), rgb(97, 174, 22));
+	color: #fff;
+}
+
+.otherUmaTabs button:disabled { opacity: .45; }
+
+.fieldRunnerActions {
+	align-items: center;
+	display: flex;
+	gap: 8px;
+	justify-content: flex-end;
+	margin-top: 10px;
+}
+
+.fieldRunnerActions span { margin-right: auto; }
+
+.opponentRosterHeader h2, .opponentRosterHeader p { margin: 0 0 6px; }
+.opponentRosterHeader button, .opponentEditorActions button { margin-left: 6px; }
+
+.fieldPresetManager {
+	background: #fff;
+	border: 1px solid #c8c8c8;
+	border-radius: 6px;
+	margin: 12px 0;
+	padding: 12px;
+}
+
+.fieldPresetHeading {
+	align-items: flex-start;
+	display: flex;
+	gap: 12px;
+	justify-content: space-between;
+}
+
+.fieldPresetHeading > div {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.fieldPresetHeading small, .fieldPresetCourse, .fieldPresetMessage {
+	color: #555;
+	font-size: 0.82em;
+}
+
+.fieldPresetCourse {
+	background: #eef5fc;
+	border-radius: 12px;
+	padding: 4px 9px;
+	white-space: nowrap;
+}
+
+.fieldPresetControls {
+	align-items: end;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 7px;
+	margin-top: 10px;
+}
+
+.fieldPresetControls label {
+	display: flex;
+	flex-direction: column;
+	font-size: 0.78em;
+	gap: 2px;
+}
+
+.fieldPresetControls label:first-child {
+	flex: 2 1 280px;
+}
+
+.fieldPresetControls label:nth-child(2) {
+	flex: 1 1 180px;
+}
+
+.fieldPresetControls select, .fieldPresetControls input[type="text"] {
+	box-sizing: border-box;
+	height: 32px;
+	min-width: 0;
+	width: 100%;
+}
+
+.fieldPresetControls button {
+	height: 32px;
+	line-height: 28px;
+	min-width: 0;
+	padding: 0 10px;
+}
+
+.fieldPresetControls button:disabled {
+	cursor: default;
+	opacity: 0.45;
+}
+
+.fieldPresetImport {
+	display: none;
+}
+
+.fieldPresetMessage {
+	margin: 7px 0 0;
+}
+
+.fieldPresetPreview {
+	border-top: 1px solid #ddd;
+	font-size: 0.85em;
+	margin-top: 10px;
+	padding-top: 8px;
+}
+
+.fieldPresetPreview summary {
+	cursor: pointer;
+	font-weight: bold;
+}
+
+.fieldPresetRunnerList {
+	display: grid;
+	gap: 6px;
+	grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+	margin-top: 8px;
+}
+
+.fieldPresetRunner {
+	background: #f7f7f7;
+	border: 1px solid #ddd;
+	border-radius: 4px;
+	display: grid;
+	gap: 2px 8px;
+	grid-template-columns: auto 1fr;
+	padding: 7px;
+}
+
+.fieldPresetRunner > small {
+	color: #555;
+	grid-column: 1 / -1;
+}
+
+.fieldPresetSkillList {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 3px;
+	grid-column: 1 / -1;
+	margin-top: 3px;
+}
+
+.fieldPresetSkillList span, .fieldPresetSkillList em {
+	background: #fff;
+	border: 1px solid #ddd;
+	border-radius: 10px;
+	font-size: 0.88em;
+	font-style: normal;
+	padding: 2px 6px;
+}
+
+.opponentCards {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(155px, 240px));
+	gap: 8px;
+	margin: 12px 0;
+}
+
+.opponentCard {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	min-height: 68px;
+	padding: 8px;
+	border: 1px solid #aaa;
+	border-radius: 5px;
+	background: white;
+	color: inherit;
+}
+
+button.opponentCard { cursor: pointer; }
+.opponentCard.selected { border: 2px solid #2a77c5; padding: 7px; }
+.opponentCard.tracked { background: #eef5fc; }
+.opponentCard.fieldInactive { background: #fafafa; border-style: dashed; }
+.opponentCard small { align-items: center; color: #555; display: flex; margin-top: auto; }
+.opponentCardUmaIcon { height: 18px; margin: 0 4px 0 0; width: 18px; }
+
+#opponentRoster.embeddedOpponentRoster {
+	background: transparent;
+	border: 0;
+	box-sizing: border-box;
+	margin: 0;
+	min-height: 0;
+	padding: 0;
+}
+
+.embeddedOpponentRoster > .horseDef {
+	margin: 0;
+}
+
+.embeddedRunnerListLabel {
+	color: #794016;
+	font-weight: 700;
+	margin: 12px 0 5px;
+}
+
+.embeddedOpponentRoster .opponentCards {
+	grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+	margin: 0;
+}
+
+.embeddedOpponentRoster .opponentCard {
+	min-height: 70px;
+}
+
+.embeddedFieldTools {
+	margin-top: 12px;
+}
+
+.embeddedFieldPresetDetails {
+	color: #794016;
+	font-weight: 700;
+	margin-top: 10px;
+}
+
+.opponentEditor {
+	margin-top: 12px;
+	padding-top: 12px;
+	border-top: 1px solid #ccc;
+}
+
+.opponentEditor > .horseDef { margin: 12px auto 0; }
+
+.fieldApproximationNotice {
+	margin: 12px 0 0;
+	font-size: 0.9em;
+	color: #555;
 }
 
 #infoTables caption > div {
@@ -413,17 +791,41 @@ strong.uma2 { color: var(--uma2-color); }
 	min-width: 700px;  /* needed for when this is a placeholder to consume grid space when uma pane is expanded */
 }
 
-#umaPane > div {
+#umaPane > .umaEditorPanel {
 	display: none;
-	height: 99vh;
 }
 
-#umaPane > div.selected {
+#umaPane > .umaEditorPanel.selected {
 	display: block;
 }
 
 #umaPane .horseDef {
 	border-top: none;
+}
+
+.umaPaneTabs {
+	display: flex;
+	gap: 4px;
+	margin: 0 0 4px;
+}
+
+.umaPaneTabs button {
+	background: linear-gradient(white, rgb(228, 227, 234));
+	border: 2px solid rgb(170, 221, 154);
+	border-radius: 8px 8px 0 0;
+	box-sizing: border-box;
+	color: rgb(121, 64, 22);
+	cursor: pointer;
+	flex: 1;
+	font-size: 1.05em;
+	font-weight: 700;
+	min-height: 38px;
+	padding: 6px 10px;
+}
+
+.umaPaneTabs button.selected {
+	background: linear-gradient(rgb(153, 219, 68), rgb(112, 190, 18));
+	color: white;
 }
 
 .umaTabs {
@@ -440,6 +842,7 @@ strong.uma2 { color: var(--uma2-color); }
 	color: rgb(121,64,22);
 	display: flex;
 	flex: 1;
+	min-width: 0;
 	outline: 2px solid rgb(216, 217, 220);
 	padding: 6px 0 6px 20px;
 }
@@ -574,6 +977,69 @@ strong.uma2 { color: var(--uma2-color); }
 	width: 100%;
 }
 
+#chartEvaluationControls {
+	background: #fff;
+	border: 2px solid rgb(181, 174, 187);
+	border-radius: 8px;
+	box-sizing: border-box;
+	color: rgb(121, 64, 22);
+	margin-bottom: 8px;
+	padding: 8px;
+	width: 100%;
+}
+
+.evaluationTabs {
+	display: grid;
+	gap: 6px;
+	grid-template-columns: 1fr 1fr;
+}
+
+.evaluationTabs button {
+	background: linear-gradient(#fff, #e4e0e9);
+	border: 1px solid rgb(181, 174, 187);
+	border-radius: 6px;
+	color: inherit;
+	cursor: pointer;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	padding: 7px 10px;
+	text-align: left;
+}
+
+.evaluationTabs button.selected {
+	background: linear-gradient(rgb(168, 227, 5), rgb(97, 174, 22));
+	border-color: rgb(85, 143, 24);
+	color: #fff;
+}
+
+.evaluationTabs small { font-size: .76em; font-weight: 500; }
+
+.evaluationOptions {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 14px;
+	padding: 8px 2px 0;
+}
+
+.evaluationOptions p {
+	flex: 1 1 320px;
+	font-size: .78em;
+	margin: 0;
+}
+
+.evaluationSampleInput {
+	align-items: center;
+	display: flex;
+	font-size: .85em;
+	font-weight: 700;
+	gap: 6px;
+}
+
+.evaluationSampleInput input { width: 64px; }
+.evaluationRun { margin-left: auto; min-width: 170px; }
+
 #extendedOptionsRow {
 	align-items: center;
 	display: flex;
@@ -584,7 +1050,11 @@ strong.uma2 { color: var(--uma2-color); }
 #basinnChartSelect {
 	border: none;
 	display: flex;
-	flex-direction: column;
+	flex-direction: row;
+	flex-wrap: wrap;
+	gap: 10px;
+	margin: 0;
+	padding: 0;
 }
 
 #basinnChartSelectButtons {
@@ -611,6 +1081,38 @@ strong.uma2 { color: var(--uma2-color); }
 	transform: scale(1.3);
 }
 
+#chartProgress {
+	color: rgb(121, 64, 22);
+	font-size: 0.82em;
+	margin: -8px 0 4px;
+	width: 100%;
+}
+
+.chartProgressHeader {
+	display: flex;
+	font-weight: 700;
+	gap: 8px;
+	margin-bottom: 3px;
+}
+.chartProgressHeader > span:nth-child(2) { margin-left: auto; }
+.chartProgressStop {
+	background: #fff;
+	border: 1px solid #b34e43;
+	border-radius: 4px;
+	color: #98352d;
+	cursor: pointer;
+	font: inherit;
+	font-size: .9em;
+	font-weight: 800;
+	padding: 1px 7px;
+}
+
+#chartProgress progress {
+	accent-color: rgb(97, 174, 22);
+	height: 8px;
+	width: 100%;
+}
+
 .basinnChartPopover {
 	background: white;
 	border: 2px solid rgb(181, 174, 187);
@@ -629,18 +1131,32 @@ strong.uma2 { color: var(--uma2-color); }
 	width: 345px;
 }
 
-@media (orientation: portrait) {
+@media (min-width: 1651px) {
+	#app {
+		display: grid;
+		grid-template-areas: "primary simulation" "others others";
+		grid-template-columns: 700px minmax(0, 1fr);
+		height: auto;
+	}
+
+	#umaPane { grid-area: primary; }
+	#nonUmaPanes { grid-area: simulation; min-width: 0; }
+	#opponentRoster { grid-area: others; }
+}
+
+@media (max-width: 1650px) {
 	body {
-		overflow: unset;
+		overflow-x: hidden;
 	}
 
 	#app {
 		flex-direction: column;
+		height: auto;
 	}
 
 	#umaPane {
-		height: 67vh;
-		width: 100vw;
+		min-width: 0;
+		width: min(700px, 100%);
 	}
 
 	#expandBtn {
@@ -648,29 +1164,41 @@ strong.uma2 { color: var(--uma2-color); }
 	}
 
 	#nonUmaPanes {
-		flex-direction: column-reverse;
+		box-sizing: border-box;
+		flex-direction: column;
+		margin: 10px 0 0;
+		min-width: 0;
+		width: 100%;
 	}
 
 	#midPane {
 		margin-left: 0;
+		max-width: 100%;
+		overflow-x: auto;
+		overflow-y: visible;
 	}
 
 	#sidebar {
-		align-items: center;
-		column-gap: 20px;
-		flex-direction: row;
-		flex-wrap: wrap;
-		font-size: 26px;
-		margin: 0 auto;
-		width: 96vw;
+		align-items: end;
+		box-sizing: border-box;
+		display: grid;
+		font-size: 14px;
+		gap: 8px 14px;
+		grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+		margin: 0 0 10px;
+		order: -1;
+		padding: 12px;
+		width: 100%;
 	}
 
-	#sidebar > fieldset {
-		display: flex;
-	}
+	#sidebar #run { margin: 0; }
+	#sidebar > .spacer { display: none; }
 
 	#resultsPaneWrapper {
 		flex-direction: column;
+		max-width: 100%;
+		min-width: 0;
+		width: 100%;
 	}
 
 	#extendedOptionsRow {
@@ -678,7 +1206,45 @@ strong.uma2 { color: var(--uma2-color); }
 		height: auto;
 	}
 
-	#basinnChartSelect {
-		flex-direction: row;
+	.fieldPresetHeading {
+		flex-direction: column;
 	}
+
+	.fieldPresetControls {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.fieldPresetControls label:first-child, .fieldPresetControls label:nth-child(2) {
+		flex: none;
+	}
+}
+
+@media (max-width: 720px) {
+	:root { --compare-results-panel-width: calc(100vw - 24px); }
+	#umaPane { height: auto; overflow-x: auto; width: 100%; }
+	#umaPane .horseDef, #opponentRoster .horseDef { font-size: 16px; height: auto; min-height: 0; }
+	#umaPane .horseDefHeader, #opponentRoster .horseDefHeader { font-size: 1.45em; }
+	#umaPane .horseTopSection, #opponentRoster .horseTopSection { flex-direction: column; }
+	#umaPane .horseTopButtonsRow, #opponentRoster .horseTopButtonsRow { justify-content: flex-end; }
+	#umaPane .umaSelector, #opponentRoster .umaSelector { padding-left: 12px; }
+	#umaPane .horseParams, #opponentRoster .horseParams { margin-left: 8px; margin-right: 8px; }
+	#umaPane .horseParam, #opponentRoster .horseParam { padding: 3px; }
+	#umaPane .horseParam > img, #opponentRoster .horseParam > img { width: 20px; }
+	#umaPane .horseParam > input, #opponentRoster .horseParam > input { font-size: 1em; margin-left: 2px; min-width: 0; }
+	#umaPane .horseAptitudes, #opponentRoster .horseAptitudes { gap: 6px; margin: 0 12px; }
+	#umaPane .horseAptitudes > div, #opponentRoster .horseAptitudes > div { min-width: 0; padding: 0 5px; }
+	.umaTabs { font-size: 18px; }
+	.umaTab { overflow: hidden; padding-left: 8px; white-space: nowrap; }
+	#midPane, #resultsPane.mode-chart { width: 100%; }
+	#sidebar { grid-template-columns: 1fr 1fr; }
+	.evaluationTabs { grid-template-columns: 1fr; }
+	.evaluationOptions { align-items: stretch; flex-direction: column; }
+	.evaluationRun { margin-left: 0; }
+	#opponentRoster { margin: 10px 0; padding: 10px; }
+	#opponentRoster.embeddedOpponentRoster { margin: 0; padding: 0; }
+	.opponentEditorActions { align-items: flex-start; flex-direction: column; }
+	#resultsPaneWrapper { height: auto; }
+	#monteCarloAnalysis { width: var(--compare-results-panel-width); }
+	#introtext { height: auto; margin-left: 0; max-height: 220px; padding: 8px 12px; width: auto; }
 }
