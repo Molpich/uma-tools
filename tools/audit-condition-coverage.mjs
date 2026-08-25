@@ -11,15 +11,22 @@ const skills = JSON.parse(fs.readFileSync(skillDataPath, 'utf8'));
 const names = JSON.parse(fs.readFileSync(skillNamesPath, 'utf8'));
 const source = fs.readFileSync(conditionsPath, 'utf8');
 
-function blockBetween(startMarker, endMarker) {
-	const start = source.indexOf(startMarker);
-	if (start < 0) throw new Error(`Could not find ${startMarker}`);
-	const end = source.indexOf(endMarker, start);
-	if (end < 0) throw new Error(`Could not find ${endMarker}`);
+function conditionMapBlock(name) {
+	const declaration = `export const ${name}`;
+	const start = source.indexOf(declaration);
+	if (start < 0) return null;
+
+	// The solver has renamed helper functions and may add another exported
+	// condition map between versions. Delimit maps by their export declarations
+	// instead of depending on an unrelated helper function name.
+	const nextExport = source.indexOf('\nexport const ', start + declaration.length);
+	const end = nextExport >= 0 ? nextExport : source.lastIndexOf('\n});');
+	if (end < 0) throw new Error(`Could not find the end of ${name}`);
 	return source.slice(start, end);
 }
 
 function conditionKeys(block) {
+	if (block == null) return new Set();
 	// Condition maps use one property per line. Nested operator properties such
 	// as filterEq are excluded because they are not valid data condition names.
 	const ignored = new Set(['filterEq', 'filterNeq', 'filterLt', 'filterLte', 'filterGt', 'filterGte']);
@@ -28,14 +35,8 @@ function conditionKeys(block) {
 		.filter(key => !ignored.has(key)));
 }
 
-const baseConditions = conditionKeys(blockBetween(
-	'export const Conditions:',
-	'\nfunction dynamicValueFilter'
-));
-const fieldConditions = conditionKeys(blockBetween(
-	'export const FieldConditions:',
-	'\n}));'
-));
+const baseConditions = conditionKeys(conditionMapBlock('Conditions'));
+const fieldConditions = conditionKeys(conditionMapBlock('FieldConditions'));
 const supported = new Set([...baseConditions, ...fieldConditions]);
 
 // These exact findings are present in the current data set but deliberately
