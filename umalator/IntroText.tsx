@@ -2,321 +2,96 @@ import { h } from 'preact';
 
 import './IntroText.css';
 
-export function IntroText(props) {
+export function IntroText() {
 	return (
 		<div id="introtext">
+			<details open={true}>
+				<summary>About this fork</summary>
+				<p>
+					This is a personal extension of the open-source
+					<a href="https://github.com/alpha123/uma-tools" target="_blank">alpha123/uma-tools</a>
+					race simulator. The original simulator, solver, game data, assets, and historical
+					implementation remain credited to alpha123 and the original contributors.
+				</p>
+				<p>
+					This fork is maintained at <a href="https://github.com/Molpich/uma-tools" target="_blank">Molpich/uma-tools</a>
+					and uses the forked mechanics solver at <a href="https://github.com/Molpich/uma-skill-tools" target="_blank">Molpich/uma-skill-tools</a>.
+					It is not affiliated with Cygames or <i>Uma Musume: Pretty Derby</i>.
+				</p>
+				<ul>
+					<li>Compare mode supports the original two-runner workflow plus an experimental shared-clock field model.</li>
+					<li>Field mode tracks live ranks, proximity, overtake targets, activation-window events, and targeted effects for supported conditions.</li>
+					<li>Replay views expose skill activations, bonus acceleration, total acceleration, ranks, and other run telemetry.</li>
+					<li>The skill table includes paired comparisons, adaptive sampling, and an experimental Uma comparison view.</li>
+				</ul>
+				<p>
+					<a href="https://github.com/Molpich/uma-tools/blob/master/UMA_SIMULATOR_EXTENSION.md" target="_blank">Read the detailed model notes and limitations</a>.
+				</p>
+			</details>
+
 			<details>
-				<summary>Caveats</summary>
-				The simulator is fairly complete and implements nearly all relevant game mechanics, with the following exceptions:
+				<summary>Current caveats</summary>
 				<ul>
 					<li>
-						<details>
-							<summary>Pseudo-random skills based on the location of other umas use a best-effort estimation for the distribution of their activation locations which may not be perfectly reflective of in-game behavior in all circumstances</summary>
-							<p>Skills that have conditions that require you to be blocked, are based on other umas in your proximity, etc, are modeled according to statistical distributions intended to simulate their in-game behavior but may not be perfectly accurate. It should always find the correct minimum and maximum but the reported mean and median should sometimes be taken with a grain of salt. For example skills with blocked conditions are generally better in races with more umas and worse with fewer. Use your better judgement.</p>
-							<p>Skills with conditions with <code>_random</code> in the name (e.g. <code>phase_random</code>, <code>corner_random</code>, <code>straight_random</code>) are implemented identically to the in-game logic and will have more accurate mean/median values, as are skills based purely on the course geometry with no blocked front/side/surrounded conditions.</p>
-						</details>
+						Legacy comparison mode still uses statistical activation placement for some
+						opponent-dependent and spatial conditions. This is useful for broad comparisons,
+						but not equivalent to reproducing every runner in the race.
 					</li>
 					<li>
-						<details>
-							<summary>Skill cooldowns are not implemented</summary>
-							Skills only ever activate once even if they have a cooldown like Professor of Curvature or Beeline Burst.
-						</details>
+						Full-field mode is more expressive but experimental. Rank, proximity, visibility,
+						blocking, strategy, recovery, and overtake state are modeled where supported;
+						lane selection and physical contact remain approximations, and blocking does not
+						fully reproduce collision slowdown.
 					</li>
 					<li>
-						<details>
-							<summary>Speed up mode on Front Runners is not implemented</summary>
-							Front Runners have a chance to temporarily speed up based on their wit stat. This is difficult to model and not useful for skill comparisons so it is not implemented, but consider that wit on Front Runners is very slightly more useful than the simulator reports.
-						</details>
+						Rare or newly introduced condition tokens may still have incomplete semantics.
+						The repository audits identify unknown and allowlisted legacy conditions, but an
+						audit cannot prove that a supported condition matches every game nuance.
+					</li>
+					<li>
+						Skill cooldown and repeat-activation behavior remains limited; many skills are
+						recorded as used after their first activation.
+					</li>
+					<li>
+						Results are estimates. Increase the sample count for noisy or highly random skills,
+						and treat small differences as uncertain rather than definitive.
 					</li>
 				</ul>
-				By and large it should be highly accurate. It has been battle-tested on the JP server for several years.
 			</details>
+
 			<details open={true}>
-				<summary>Changelog</summary>
+				<summary>Fork changelog</summary>
 				<section>
-					<h2>2026-07-14</h2>
+					<h2>2026-08-25</h2>
 					<ul>
-						<li>Update mechanics to match latest patch</li>
-						<li>Add new race tracks</li>
-						<li>Minor bug fixes</li>
+						<li>Updated the in-app introduction and attribution for this fork.</li>
+						<li>Added GitHub Pages deployment and reviewed upstream-sync automation.</li>
+						<li>Added data-integrity, condition-coverage, special-scaling, and skill-branch audits.</li>
+						<li>Documented full-field simulation, replay telemetry, adaptive sampling, and known limitations.</li>
 					</ul>
 				</section>
 				<section>
-					<h2>2026-05-24</h2>
+					<h2>Recent simulator extensions</h2>
 					<ul>
-						<li>
-							<details>
-								<summary>Bug fixes</summary>
-								<ul>
-									<li>Fixed self HP debuff skills (e.g. Full Throttle, Risky Business) incorrectly counting toward the activate_count_heal condition</li>
-									<li>Fixed the target speed modifier when in downhill speed bonus mode being calculated incorrectly</li>
-								</ul>
-							</details>
-						</li>
+						<li>Shared-clock full-field simulation with editable additional runners and field outcomes.</li>
+						<li>Generalized event-aware skill scaling for effects based on activation-window events.</li>
+						<li>HP-dependent scaling, green-skill start scaling, rank-aware conditions, and overtake-aware state.</li>
+						<li>Median-run replay selection and acceleration telemetry, including bonus and total acceleration.</li>
 					</ul>
 				</section>
 				<section>
-					<h2>2026-04-21</h2>
-					<ul>
-						<li>
-							<details>
-								<summary>Implement Spot Struggle</summary>
-								Applies only to Front Runners. Currently it's either on (procs 100% of the time) or off (procs 0% of the time). In practice the frequency with which it procs depends very highly on the room composition so choose the option that you think is more likely.
-							</details>
-						</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2026-04-17</h2>
-					<ul>
-						<li>Implement saving and loading uma builds as well as copying them to/pasting from the clipboard</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2026-03-27</h2>
-					<ul>
-						<li><strong>Experimental:</strong> You can now load umas from in-game screenshots. Press the 📷&#xFE0E; button in the uma editor. Please let me know if this works particularly well or particularly poorly for you.</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2026-03-22</h2>
-					<ul>
-						<li>Uma star count can now be changed to select 1★/2★ versions of uniques</li>
-						<li>Implemented unique skill scaling with levels</li>
-						<li>Running style now defaults to a more appropriate one for the selected uma rather than Pace Chaser all the time</li>
-						<li>Performance improvements to the skill table</li>
-						<li>Miscellaneous bug fixes</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2026-03-17</h2>
-					<ul>
-						<li>Wit checks are now always enabled in stamina calculator mode, as results otherwise are kind of deceptive</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2026-03-16</h2>
-					<ul>
-						<li>
-							<details>
-								<summary>Introduce a stamina calculator mode</summary>
-								<p>This shows you the minimum/maximum/mean/median HP remaining from the set of simulations. Note that HP is not 1 to 1 with stamina. The formula for HP is the course distance plus 0.8 × stamina × a value between 0.86–1.0 depending on running style.</p>
-								<p>When ‘Force full spurt’ is checked the simulations always start the last spurt as soon as possible and with maximum speed. When this option is enabled (as it is by default) the numbers given for remaining HP account for how much HP the uma would have to have to pass the check for a full speed/duration spurt. It is possible for this to be higher than the amount of HP required to actually finish the race at top speed due to the presence of downhills. In this case there will be a discrepancy between the numbers given for remaining HP and the HP consumption actually shown on the chart. Mousing over the chart shows how much HP you actually used, and the remaining HP numbers are that minus however much extra HP you would have needed to pass the last spurt check.</p>
-							</details>
-						</li>
-						<li>Modest UI design changes, hopefully pleasant</li>
-						<li>Skills with scaling effects are now simulated more accurately</li>
-						<li>Fix a bug where debuffs that have a running style condition would depend on the running style of the debuffed uma rather than the debuffer</li>
-						<li>Minor other bug fixes</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2026-03-08</h2>
-					<ul>
-						<li>
-							<details>
-								<summary>Allow choosing how skill activations are decided</summary>
-								<p>Click a skill to expand it → Activation section</p>
-								<p>The options are:</p>
-								<ul>
-									<li>Immediate: activates as soon as the uma enters the trigger range</li>
-									<li>Fixed distance: always activates at a fixed location on the track (in meters)</li>
-									<li>Random (Uniform): uniformly samples the trigger areas</li>
-									<li>Random (Log-normal): like above, but using a log-normal distribution instead with parameter <i>σ</i>. This option is usually not useful and mostly included for historical reasons.</li>
-									<li>Random (Erlang): as above but using an Erlang distribution with parameter <i>k</i>. Generally more useful and intuitive than log-normal. Increasing <i>k</i> biases skills towards activating later in their range; lower <i>k</i> makes them activate sooner.</li>
-									<li>straight_random: implements the behavior of skills with the straight_random condition. Roughly, this is like uniform random but the chance of a segment (straight, corner, hill, etc) being chosen is independent of its length.</li>
-									<li>all_corner_random: implements the behavior of skills with the all_corner_random condition. This cannot be concisely described.</li>
-								</ul>
-								<p>Due to details of the implementation, the usual <i>μ</i> parameter for a log-normal distribution and <i>λ</i> parameter for an Erlang distribution are not used.</p>
-							</details>
-						</li>
-						<li>Add a mode to the skill table to run only inherited unique skills</li>
-						<li>Minor UI improvements and performance enhancements</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2026-02-26</h2>
-					<ul>
-						<li>
-							<details>
-								<summary>Implement Rushed</summary>
-								<p>
-									Debuffs that depend on the target being Rushed (i.e., the Frenzied and Trick skills) do not work correctly, or rather do not work as you probably expect them to. These skills suck anyway and you should not take them.
-								</p>
-							</details>
-						</li>
-						<li>Show % of max speed+duration last spurts achieved in compare mode (“Full spurt rate” row)</li>
-						<li>Implement mood and popularity</li>
-						<li>
-							Slight UI rearrangement
-							<ul>
-								<li>The presets selector has been moved closer to the race options, which it is logically related to.</li>
-								<li>Course stat thresholds are now displayed by stat icons to the right of the course name above the course visualization. This is intended to improve vertical space efficiency and readability at a glance.</li>
-							</ul>
-						</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2026-02-21</h2>
-					<ul>
-						<li>Add an option to run the skill table with a selection of skills rather than all skills (can be much faster for testing only a subset of skills)</li>
-						<li>‘Copy link’ now links directly to the compare mode or skill table mode</li>
-						<li>UI may be slightly more responsive, particularly on low end devices</li>
-						<li>
-							<details>
-								<summary>Improvements to layout on mobile devices</summary>
-								It's still not good, but hopefully it's better than before.
-							</details>
-						</li>
-						<li>
-							<details>
-								<summary>Bug fixes involving the activation of certain skills</summary>
-								In particular, Moxie and Restless should now work correctly.
-							</details>
-						</li>
-						<li>Many other bug fixes</li>
-						<li>Minor UI improvements</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2025-12-10</h2>
-					<ul>
-						<li>Fix a bug with wit checks</li>
-						<li>Improve page loading times on some browsers</li>
-						<li>Update game data</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2025-12-07</h2>
-					<ul>
-						<li>Fixed a bug causing skills shared between uma1 and uma2 to activate at different positions sometimes</li>
-						<li>
-							<details>
-								<summary>Implement wit checks for skill activation</summary>
-								<p>Off by default because with it on obviously the minimum length gain for any skill is 0 (when the wit check fails). Primarily useful for stamina testing, in which case you do want to account for recovery skills whiffing.</p>
-								<p>Enabling this does not break RNG sync.</p>
-							</details>
-						</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2025-12-05</h2>
-					<ul>
-						<li><strong>Implement downhill speed-up mode</strong></li>
-						<li>Fix an issue with saving and loading from URLs</li>
-						<li>Minor UI improvements and bug fixes</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2025-12-03</h2>
-					<ul>
-						<li>Enable the Runaway style for global</li>
-						<li>Fix skills with preconditions</li>
-						<li>Greatly improve how skills of the same group (white/gold, single circle/double circle) are tracked. This should generally make a lot of behavior more intuitive, for example now if you have the white version of a skill the skill table shows only the difference between the white and the gold version, rather than adding the gold on top of the white which was the old behavior.</li>
-						<li>
-							<details>
-								<summary>Discount costs in the skill table by skills already owned</summary>
-								For example, if you own Corner Adept ○, the cost of Professor of Curvature will display as 180 instead of 360. When you add skills the costs don't update until you rerun the chart, or else the skill cost would be out of date with the calculated length gain and incorrectly inflate the SP efficiency. (Hints update immediately because hints do not effect the length gain of skills.)
-							</details>
-						</li>
-						<li>Show an indicator for when the skill table is out of date with the current uma and a button to rerun the table</li>
-						<li>Show stat thresholds when the course has them</li>
-						<li>Other minor UI improvements</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2025-12-01</h2>
-					<ul>
-						<li>Update game data</li>
-						<li>Update race mechanics to match changes in the first anniversary patch</li>
-						<li>
-							<details>
-								<summary>Add skill point cost and mean length gain per sp columns to skill chart</summary>
-								<p>This includes the total cost of the skill, i.e. gold skills including the cost of their white skill, ◎ including ○, etc. <s>Known limitation: costs are not currently reduced for the gold if you already select the white version on the uma being tested. This is because the white version is not removed in the simulation, which will be fixed in a future update.</s> Update: this has been fixed.</p>
-								<p>Cost calculation does not work for evolved skills in the JP version of the Umalator.</p>
-							</details>
-						</li>
-						<li>Minor bug fixes</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2025-08-17</h2>
-					<ul>
-						<li><strong>Fix to use proper data for hills from the current global version instead of an approximation using data from a later patch</strong> (thanks to <a href="https://github.com/mikumifa">mikumifa</a>)</li>
-						<li>Update game data</li>
-						<li>Fix a bug where very low stamina on long courses could cause the simulator to freeze</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2025-07-28</h2>
-					<ul>
-						<li>Add caveats section describing the implementation of the simulator</li>
-						<li>Allow selecting debuff skills multiple times to simulate multiple debuffers</li>
-						<li>Minor UI improvements</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2025-07-26</h2>
-					<ul>
-						<li>Update Tokyo 2400m course to remove the hill at the start to match a game bug where skills do not activate on that hill or the hill does not exist</li>
-						<li>Implement per-section int roll target speed modifier</li>
-						<li>Simulate skills with the post_number condition more accurately</li>
-						<li>Implement the random_lot condition (used by Lucky Seven/Super Lucky Seven)</li>
-						<li>Minor UI improvements</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2025-07-21</h2>
-					<ul>
-						<li>Update game data</li>
-						<li>Implement debuff skills</li>
-						<li>
-							<details>
-								<summary>Fix the implementation of skills with the corner_random condition to be more accurate to mechanics of the global release</summary>
-								Primarily affects Swinging Maestro/Corner Recovery, Professor of Curvature/Corner Adept, and the strategy/distance corner skills
-							</details>
-						</li>
-						<li>Fix an issue where skills weren't displayed on the chart if they were still active at the end of a simulation run</li>
-						<li>Added changelog</li>
-						<li>Minor UI fixes</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2025-07-17</h2>
-					<ul>
-						<li>Run simulations in a background thread for responsiveness</li>
-						<li>
-							<details>
-								<summary>Major improvements to the skill chart mode</summary>
-								<ul>
-									<li>Click rows in the skill efficacy table to show that run on the course chart</li>
-									<li>Radio buttons in table headers to select the statistic displayed on the course chart</li>
-									<li>Show a popup with skill information and length histogram when clicking icons in the skill efficacy table</li>
-									<li>Double-click rows on the skill efficacy table to add them to the simulated uma musume</li>
-								</ul>
-							</details>
-						</li>
-						<li>Changes to the skill chart mode to feel more responsive</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2025-07-16</h2>
-					<ul>
-						<li>Initial implementation of the skill chart mode</li>
-					</ul>
-				</section>
-				<section>
-					<h2>2025-07-13</h2>
-					<ul>
-						<li>Initial release of the global version</li>
-						<li>Miscellaneous UI improvements</li>
-						<li>Bug fixes</li>
-					</ul>
+					<h2>Original project history</h2>
+					<p>
+						For the original simulator release history and upstream changes, see
+						<a href="https://github.com/alpha123/uma-tools" target="_blank">alpha123/uma-tools</a>.
+					</p>
 				</section>
 			</details>
+
 			<footer id="sourcelinks">
-				Source code: <a href="https://github.com/alpha123/uma-skill-tools">simulator</a>, <a href="https://github.com/alpha123/uma-tools">UI</a>
+				Fork source: <a href="https://github.com/Molpich/uma-tools" target="_blank">UI and simulator</a>, <a href="https://github.com/Molpich/uma-skill-tools" target="_blank">mechanics solver</a><br />
+				Original project: <a href="https://github.com/alpha123/uma-tools" target="_blank">alpha123/uma-tools</a> and <a href="https://github.com/alpha123/uma-skill-tools" target="_blank">alpha123/uma-skill-tools</a>
 			</footer>
 		</div>
 	);
-	;}
+}

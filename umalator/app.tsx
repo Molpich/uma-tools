@@ -1951,7 +1951,7 @@ try {
 	render(<App lang={CC_GLOBAL?"en-global":"en-ja"} />, document.getElementById('app'));
 } catch (e) {
 	if (e instanceof DOMException) {
-		document.getElementById('app').innerHTML = '<p style="font-size:22px"><span style="border:3px solid orange;border-radius:3em;color:orange;display:inline-block;font-weight:bold;height:1.8em;line-height:1.8em;text-align:center;width:1.8em">!</span> You are probably on some kind of scummy ad-infested rehosting site. The official URL for the Umalator is <a href="https://alpha123.github.io/uma-tools/umalator-global/" target="_blank">https://alpha123.github.io/uma-tools/umalator-global/</a>.</p>'
+		document.getElementById('app').innerHTML = '<p style="font-size:22px"><span style="border:3px solid orange;border-radius:3em;color:orange;display:inline-block;font-weight:bold;height:1.8em;line-height:1.8em;text-align:center;width:1.8em">!</span> You are probably on some kind of scummy ad-infested rehosting site. The official URL for this fork is <a href="https://molpich.github.io/uma-tools/umalator-global/" target="_blank">https://molpich.github.io/uma-tools/umalator-global/</a>.</p>'
 	} else {
 		throw e;
 	}
