@@ -90,6 +90,24 @@ export const DEFAULT_HORSE_STATE = {
 	popularity: 1
 };
 
+const OPPONENT_STRATEGIES: HorseState['strategy'][] = ['Nige', 'Senkou', 'Sasi', 'Oikomi'];
+
+export function makeDefaultOpponent(uma1: HorseState, uma2: HorseState, index: number): HorseState {
+	const average = (field: 'speed' | 'stamina' | 'power' | 'guts' | 'wisdom') => Math.round((uma1[field] + uma2[field]) / 2);
+	return {
+		...uma1,
+		outfitId: '', starCount: 3,
+		speed: average('speed'), stamina: average('stamina'), power: average('power'),
+		guts: average('guts'), wisdom: average('wisdom'),
+		strategy: OPPONENT_STRATEGIES[index % OPPONENT_STRATEGIES.length],
+		skills: new Map(), samplePolicies: new Map(), uniqueLv: 1, popularity: index + 3
+	};
+}
+
+export function makeDefaultOpponentRoster(uma1: HorseState, uma2: HorseState, count = 16): HorseState[] {
+	return Array.from({length: count}, (_, index) => makeDefaultOpponent(uma1, uma2, index));
+}
+
 export function serializeUma(uma) {
 	const obj = {...uma, skills: Array.from(uma.skills.values())};
 	if (uma.samplePolicies.size > 0) {

@@ -1,0 +1,95 @@
+name: Build and deploy simulator
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source and solver submodule
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # This fork contains local solver changes. Refuse to publish until the
+      # submodule URL points at the fork-owned solver repository, so a Pages
+      # build cannot silently use the upstream mechanics implementation.
+      - name: Verify solver submodule is fork-owned
+        if: github.repository_owner != 'alpha123'
+        shell: bash
+        run: |
+          configured="$(git config -f .gitmodules --get submodule.uma-skill-tools.url)"
+          expected="https://github.com/${GITHUB_REPOSITORY_OWNER}/uma-skill-tools"
+          if [[ "$configured" != "$expected" && "$configured" != "$expected.git" ]]; then
+            echo "::error::uma-skill-tools must point at ${expected} before deploying this fork."
+            echo "Configured URL: ${configured}"
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate imported data and mechanics coverage
+        run: |
+          npm run audit:data
+          npm run audit:conditions
+          npm run audit:skill-branches
+          npm run audit:special-scaling
+
+      - name: Run maintained regression tests
+        run: |
+          npm run test:montecarlo
+          npm run test:rank-aware
+
+      - name: Build production simulator
+        run: npm run build:umalator-global
+
+      - name: Assemble Pages artifact
+        shell: bash
+        run: |
+          rm -rf _site
+          mkdir _site
+          # Preserve the repository's existing project-site layout and root
+          # assets, while excluding .git, node_modules, and source-only files
+          # that are not needed by the static site.
+          git archive HEAD | tar -x -C _site
+          cp umalator-global/bundle.js _site/umalator-global/bundle.js
+          cp umalator-global/bundle.css _site/umalator-global/bundle.css
+          cp umalator-global/simulator.worker.js _site/umalator-global/simulator.worker.js
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

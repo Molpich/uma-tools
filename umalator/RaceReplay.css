@@ -1,0 +1,211 @@
+.raceReplayPanel {
+	background: #fff;
+	border: 2px solid rgb(224, 214, 204);
+	border-radius: 10px;
+	box-sizing: border-box;
+	color: rgb(121, 64, 22);
+	margin: 16px 12px 24px;
+	padding: 12px 16px 14px;
+	width: var(--compare-results-panel-width, 1139px);
+}
+
+.raceReplayHeader, .raceReplayHeader > div, .raceReplaySelected, .replayRunnerName, .replayPosition {
+	display: flex;
+	flex-direction: column;
+}
+
+.raceReplayHeader {
+	align-items: center;
+	flex-direction: row;
+	justify-content: space-between;
+	margin-bottom: 8px;
+}
+
+.raceReplayHeader h2 { margin: 0; }
+.raceReplayHeader span, .raceReplayNote, .raceReplayWarning { font-size: .78em; }
+.raceReplaySelected { align-items: flex-end; text-align: right; }
+.raceReplayAcceleration { align-items: baseline; display: flex; gap: 7px; margin-top: 2px; }
+.raceReplayAcceleration > strong { color: #a24711; font-size: .9em; }
+.raceReplayAcceleration > small { font-size: .72em; opacity: .8; }
+.raceReplayExpand {
+	background: linear-gradient(#fff,#e4e0e9); border: 1px solid #9d98a8; border-radius: 5px;
+	color: #794016; font-weight: 700; min-height: 30px; padding: 4px 10px;
+}
+
+.raceReplayPanel.expanded {
+	border: 0; border-radius: 0; box-shadow: 0 0 0 100vmax #0008; height: 100vh;
+	inset: 0; margin: 0; max-width: none; overflow: auto; padding: 14px 20px 18px;
+	position: fixed; width: 100vw; z-index: 10000;
+}
+.raceReplayPanel.expanded .raceReplayHeader { position: sticky; top: -14px; z-index: 5; background: #fff; padding: 10px 0 8px; }
+.raceReplayPanel.expanded .raceReplayStage { grid-template-columns: minmax(0, 1fr) 320px; }
+.raceReplayPanel.expanded .raceReplayStage > svg { height: max(560px, calc(100vh - 245px)); }
+.raceReplayPanel.expanded .raceReplayStandings { min-height: max(560px, calc(100vh - 245px)); }
+
+.raceReplayWarning {
+	background: #fff3cd;
+	border-radius: 5px;
+	margin: 5px 0 8px;
+	padding: 6px 8px;
+}
+
+.raceReplayRunnerState { display: flex; flex-wrap: wrap; gap: 5px; margin: 5px 0 8px; }
+.raceReplayRunnerState > span {
+	background: #f4f1ee; border: 1px solid #ddd2c9; border-radius: 5px; display: flex;
+	flex-direction: column; font-size: .72em; padding: 3px 7px;
+}
+.raceReplayRunnerState .paceDown.active { background: #ffe0dc; border-color: #dc6254; }
+.raceReplayRunnerState .paceDown.prevented { background: #e5f4d1; border-color: #75a735; }
+.raceReplayRunnerState .paceDown.ended { background: #fff1c9; border-color: #d6a93c; }
+
+.raceReplayCameraControls {
+	align-items: center;
+	background: #f5f1ed;
+	border: 1px solid #d8cdc4;
+	border-radius: 7px;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin: 5px 0 8px;
+	padding: 5px 7px;
+}
+.raceReplayCameraControls > span { color: #78522e; font-size: .76em; font-weight: 800; text-transform: uppercase; }
+.raceReplayCameraControls button {
+	background: #fff;
+	border: 1px solid #c8bbb0;
+	border-radius: 5px;
+	color: #67411e;
+	cursor: pointer;
+	font-weight: 700;
+	padding: 4px 9px;
+}
+.raceReplayCameraControls button.active { background: #70ba18; border-color: #529509; color: #fff; }
+.raceReplayCameraControls label { align-items: center; display: flex; font-size: .78em; font-weight: 700; gap: 5px; margin-left: 5px; }
+.raceReplayCameraControls label.disabled { opacity: .42; }
+.raceReplayCameraControls input { accent-color: #61ae16; width: 110px; }
+.raceReplayCameraControls label strong { min-width: 30px; }
+.raceReplayCameraControls small { margin-left: auto; opacity: .7; }
+
+.raceReplayStage {
+	display: grid;
+	gap: 10px;
+	grid-template-columns: minmax(0, 1fr) 255px;
+}
+
+.raceReplayStage > svg {
+	background: #dff0c6;
+	border: 1px solid #b8c99e;
+	border-radius: 10px;
+	height: 430px;
+	width: 100%;
+}
+
+.raceReplayInfield { fill: #dff0c6; }
+.raceReplayRail { fill: none; stroke: #816c58; stroke-linecap: round; stroke-linejoin: round; stroke-width: 70px; }
+.raceReplayTrack { fill: none; stroke: #8ebd4d; stroke-linecap: round; stroke-linejoin: round; stroke-width: 62px; }
+.raceReplayTrack.dirt { stroke: #cfa46e; }
+.raceReplayCenterLine { fill: none; opacity: .45; stroke: #fff; stroke-dasharray: 7 8; stroke-width: 1.5px; }
+.raceReplayPhaseMarker line { stroke-width: 4px; }
+.raceReplayPhaseMarker text {
+	dominant-baseline: central; fill: #623b1d; font-size: 8px; font-weight: 900;
+	paint-order: stroke; stroke: #fff; stroke-linejoin: round; stroke-width: 3px; text-anchor: middle;
+}
+.raceReplayPhaseMarker tspan { font-size: 7px; font-weight: 700; }
+.raceReplayPhaseMarker.midRace line { stroke: #efe34f; }
+.raceReplayPhaseMarker.lateRace line { stroke: #e052a0; }
+.raceReplayPhaseMarker.lastSpurt line { stroke: #9c2f74; }
+.raceReplayStart { stroke: #fff; stroke-width: 3px; }
+.raceReplayFinish { stroke: #222; stroke-dasharray: 4 3; stroke-width: 4px; }
+.raceReplayMarkerText { fill: #56412d; font-size: 10px; font-weight: 800; paint-order: stroke; stroke: #fff; stroke-width: 3px; text-anchor: middle; }
+
+.raceReplayRunner { cursor: pointer; filter: drop-shadow(0 2px 2px #0008); transition: filter .12s; }
+.raceReplayRunner .runnerRing { stroke: #fff; stroke-width: 2px; }
+.raceReplayRunner.selected { filter: drop-shadow(0 0 6px #fff) drop-shadow(0 0 7px #ff8b00); }
+.raceReplayRunner.selected .runnerRing { stroke: #ffec63; stroke-width: 4px; }
+.raceReplayRunner.selected > image:not(.raceReplaySkillIcon), .raceReplayRunner.selected .runnerRing { transform: scale(1.12); }
+.raceReplaySkillIcon { filter: drop-shadow(0 1px 2px #000b); pointer-events: none; }
+.raceReplayPaceDownBadge { pointer-events: none; }
+.raceReplayPaceDownBadge rect { fill: #ba332a; stroke: #fff; stroke-width: 1px; }
+.raceReplayPaceDownBadge text { dominant-baseline: central; fill: #fff; font-size: 6px; font-weight: 900; text-anchor: middle; }
+.runnerNumberBg { stroke: #fff; stroke-width: 1px; }
+.runnerNumber { dominant-baseline: central; fill: #fff; font-size: 9px; font-weight: 800; text-anchor: middle; }
+
+.raceReplayStandings {
+	background: #f4f1ee;
+	border-radius: 8px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	overflow: hidden;
+	padding: 4px;
+}
+
+.raceReplayStandings button {
+	align-items: center;
+	background: #fff;
+	border: 1px solid transparent;
+	border-radius: 5px;
+	color: inherit;
+	display: grid;
+	font: inherit;
+	grid-template-columns: 22px 30px 1fr auto;
+	min-height: 42px;
+	padding: 3px 5px;
+	text-align: left;
+}
+
+.raceReplayStandings button.selected { background: #fff8d6; border-color: #e7b737; }
+.raceReplayStandings img { border-radius: 50%; height: 27px; width: 27px; }
+.replayRank { font-size: 1.05em; font-weight: 800; text-align: center; }
+.replayRunnerName { font-size: .72em; font-weight: 700; overflow: hidden; padding-left: 4px; white-space: nowrap; }
+.replayPosition { align-items: flex-end; font-family: monospace; font-size: .72em; white-space: nowrap; }
+.raceReplayStandings small { font-size: .72em; font-weight: 400; opacity: .72; }
+
+.raceReplayControls {
+	align-items: center;
+	display: flex;
+	gap: 6px;
+	margin-top: 10px;
+}
+
+.raceReplayControls button, .raceReplayControls select {
+	background: linear-gradient(#fff,#e4e0e9);
+	border: 1px solid #9d98a8;
+	border-radius: 5px;
+	color: #794016;
+	font-weight: 700;
+	height: 30px;
+}
+
+.raceReplayControls button { min-width: 34px; }
+.raceReplayControls .raceReplayPlay { background: linear-gradient(#a8e305,#61ae16); color: #fff; min-width: 44px; }
+.raceReplayControls input { accent-color: #61ae16; flex: 1; }
+.raceReplayActivations { border-top: 1px solid #dfd4ca; margin-top: 10px; padding-top: 8px; }
+.raceReplayActivations > strong { display: block; font-size: .82em; margin-bottom: 5px; }
+.raceReplayActivations > strong:not(:first-child) { margin-top: 8px; }
+.noReplayActivations { font-size: .76em; opacity: .7; }
+.raceReplayActivationList { display: flex; flex-wrap: wrap; gap: 5px; }
+.raceReplayActivationList button {
+	align-items: center; background: #f5f1ed; border: 1px solid #d8cec5; border-radius: 5px;
+	color: inherit; display: flex; font: inherit; gap: 4px; padding: 3px 6px; text-align: left;
+}
+.raceReplayActivationList button.active { background: #fff3b3; border-color: #e3a91c; box-shadow: 0 0 4px #efb52c; }
+.raceReplayActivationList img { height: 25px; width: 25px; }
+.raceReplayActivationList span { display: flex; flex-direction: column; font-size: .72em; font-weight: 700; }
+.raceReplayActivationList small { font-size: .82em; font-weight: 400; opacity: .72; }
+.paceEventIcon {
+	align-items: center; background: #ba332a; border-radius: 4px; color: #fff; display: flex !important;
+	font-size: 9px !important; height: 25px; justify-content: center; width: 25px;
+}
+.raceReplayNote { margin: 7px 0 0; opacity: .8; }
+
+@media (orientation: portrait) {
+	.raceReplayPanel { width: calc(100vw - 24px); }
+	.raceReplayStage { grid-template-columns: 1fr; }
+	.raceReplayStage > svg { height: auto; }
+	.raceReplayStandings { display: grid; grid-template-columns: repeat(3, 1fr); }
+	.raceReplayPanel.expanded { width: 100vw; }
+	.raceReplayPanel.expanded .raceReplayStage { grid-template-columns: 1fr; }
+	.raceReplayPanel.expanded .raceReplayStage > svg { height: auto; min-height: 55vh; }
+	.raceReplayPanel.expanded .raceReplayStandings { min-height: 0; }
+}

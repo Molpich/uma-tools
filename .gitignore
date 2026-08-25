@@ -1,1 +1,19 @@
 node_modules/
+
+# Local databases, secrets, and machine-specific configuration
+*.mdb
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+
+# Local build output, reports, and OS/editor noise
+_site/
+coverage/
+*.log
+.DS_Store
+Thumbs.db

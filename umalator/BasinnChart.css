@@ -4,9 +4,27 @@
 	border: 2px solid rgb(181,174,187);
 	border-radius: 6px 6px 0 0;
 	height: calc(55vh - 2px);
-	overflow-x: hidden;
+	overflow-x: auto;
 	overflow-y: auto;
 	width: 100%;
+}
+
+.basinnChart:not(.umaChart) {
+	min-width: 1080px;
+}
+
+.umaChart {
+	min-width: 720px;
+}
+
+.umaChart th:first-child { width: 42%; }
+.umaChart th:not(:first-child) { width: 14.5%; }
+.umaChart .chartSkillName > span { min-width: 0; }
+.umaChart .chartSkillName small {
+	display: block;
+	font-size: .78em;
+	font-weight: 500;
+	overflow-wrap: anywhere;
 }
 
 .basinnChartWrapper.dirty {
