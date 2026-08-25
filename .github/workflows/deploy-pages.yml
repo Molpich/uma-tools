@@ -10,7 +10,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: pages
+  # Keep pull-request validation separate from the real deployment. A newer
+  # PR check must not cancel a deployment that was triggered after merging to
+  # master. New pushes to the same PR/deploy stream still replace stale runs.
+  group: pages-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'deploy' }}
   cancel-in-progress: true
 
 jobs:
