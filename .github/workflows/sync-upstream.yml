@@ -182,7 +182,11 @@ jobs:
             umalator-global/simulator.worker.js \
             skill-visualizer-global/bundle.js \
             skill-visualizer-global/bundle.css
-          git diff --cached --check
+          # Upstream's data snapshots are committed with CRLF line endings.
+          # Tell Git that the CR immediately before LF is an end-of-line marker
+          # so the whitespace guard still catches real trailing spaces without
+          # rejecting otherwise-valid data-only updates.
+          git -c core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol diff --cached --check
           git commit --no-edit
 
           git push --force-with-lease origin "$branch"
@@ -212,3 +216,4 @@ jobs:
             gh pr edit "$existing" --title 'Sync updates from alpha123/uma-tools' --body "$body"
             echo "Upstream sync PR #$existing was updated."
           fi
+
