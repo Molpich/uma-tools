@@ -80,6 +80,43 @@ test('longitudinal field state supplies proximity and conservative blocking chec
 	assert.equal(runners[0].fieldSpread, 10);
 });
 
+test('blocked overtake targets can use current speed for the speed comparison', () => {
+	const pursuer = fieldRunner(5, 21, 21);
+	const blockedTarget = fieldRunner(10, 20, 22);
+	const blocker = fieldRunner(11.5, 22, 22);
+	const runners = [pursuer, blockedTarget, blocker];
+	updateLongitudinalFieldState(runners, 1 / 15);
+	assert.equal(blockedTarget.blockedFront, true);
+	assert.equal(pursuer.hasOvertakeTarget, true);
+
+	const unblockedTarget = fieldRunner(10, 20, 22);
+	const unblocked = [fieldRunner(5, 21, 21), unblockedTarget];
+	updateLongitudinalFieldState(unblocked, 1 / 15);
+	assert.equal(unblocked[0].hasOvertakeTarget, false);
+});
+
+test('overtake target timers distinguish pursuers from runners being pursued', () => {
+	const target = fieldRunner(10, 20, 20);
+	const pursuerX = fieldRunner(5, 21, 22);
+	const pursuerY = fieldRunner(3, 20, 21);
+	const runners = [target, pursuerX, pursuerY];
+
+	updateLongitudinalFieldState(runners, 1 / 15);
+	assert.equal(target.hasOvertakeTarget, false);
+	assert.ok(Math.abs(target.overtakeTargetTime - 1 / 15) < 1e-12);
+	assert.equal(target.overtakeTargetNoOrderUpTime, 0);
+	assert.ok(Math.abs(pursuerX.overtakeTargetNoOrderUpTime - 1 / 15) < 1e-12);
+
+	// A handoff must not combine two different pursuers' partial durations.
+	for (let i = 1; i < 8; ++i) updateLongitudinalFieldState(runners, 1 / 15);
+	pursuerX.currentSpeed = 20;
+	pursuerY.currentSpeed = 21;
+	for (let i = 0; i < 7; ++i) updateLongitudinalFieldState(runners, 1 / 15);
+	assert.ok(Math.abs(target.overtakeTargetTime - 7 / 15) < 1e-12);
+	for (let i = 0; i < 8; ++i) updateLongitudinalFieldState(runners, 1 / 15);
+	assert.ok(Math.abs(target.overtakeTargetTime - 1) < 1e-12);
+});
+
 test('full-field order-change counters use live rank gains in their course regions', () => {
 	const runners = [fieldRunner(110), fieldRunner(100), fieldRunner(90), fieldRunner(80)];
 	updateLongitudinalFieldState(runners, 1 / 15);
