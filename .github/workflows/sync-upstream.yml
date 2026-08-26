@@ -25,8 +25,10 @@ jobs:
           fetch-depth: 0
           submodules: false
 
-      - name: Merge upstream master
+      - name: Merge upstream source and data
         id: merge
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -36,38 +38,177 @@ jobs:
           git fetch --no-tags upstream master
 
           branch='automation/upstream-sync'
-          git switch -C "$branch"
-          if git merge --no-edit upstream/master; then
-            echo "merge_ok=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::error::Upstream changes conflict with local simulator changes. Resolve the sync manually."
-            git merge --abort
-            exit 1
-          fi
-
-          if git diff --quiet "origin/master"...HEAD; then
+          existing_sync_pr="$(gh pr list --base master --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          if [[ -n "$existing_sync_pr" ]] \
+            && git show-ref --verify --quiet "refs/remotes/origin/$branch" \
+            && git merge-base --is-ancestor origin/master "origin/$branch" \
+            && git merge-base --is-ancestor upstream/master "origin/$branch"; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "solver_update=false" >> "$GITHUB_OUTPUT"
+            echo "Existing upstream sync PR #$existing_sync_pr already contains the current fork and upstream heads." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
-          git push --force-with-lease origin "$branch"
+          git switch -C "$branch" origin/master
+
+          if git merge-base --is-ancestor upstream/master HEAD; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "solver_update=false" >> "$GITHUB_OUTPUT"
+            echo "Fork master already contains upstream master." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          merge_base="$(git merge-base HEAD upstream/master)"
+          if git diff --quiet "$merge_base" upstream/master -- .gitmodules uma-skill-tools; then
+            solver_update=false
+          else
+            solver_update=true
+            echo "::warning::Upstream changed its solver submodule configuration or pointer. The fork-owned solver remains pinned; review the upstream solver separately."
+            echo "### Solver update intentionally not imported" >> "$GITHUB_STEP_SUMMARY"
+            echo "The parent upstream changed \`.gitmodules\` or \`uma-skill-tools\`. This workflow kept the fork-owned solver so data updates can continue safely." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "solver_update=$solver_update" >> "$GITHUB_OUTPUT"
+
+          # These are derived from source plus the JSON data below. Upstream
+          # rebuilds them for data-only releases, while this fork rebuilds them
+          # with its own UI and solver. Never try to combine their minified
+          # contents; keep the fork versions until the rebuild steps run.
+          is_generated_artifact() {
+            case "$1" in
+              umalator-global/bundle.js|umalator-global/bundle.css|umalator-global/simulator.worker.js|skill-visualizer-global/bundle.js|skill-visualizer-global/bundle.css)
+                return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
+          # The Global JSON snapshots are upstream-owned inputs. If a previous
+          # sync left a local edit on one of them, prefer the new upstream data
+          # instead of blocking future character, skill, or course updates.
+          is_upstream_data() {
+            case "$1" in
+              umalator-global/*.json|skill_meta.json|umas.json)
+                return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
+          is_fork_solver() {
+            case "$1" in
+              .gitmodules|uma-skill-tools) return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
+          if ! git merge --no-commit --no-ff upstream/master; then
+            mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+            unexpected=()
+
+            for path in "${conflicts[@]}"; do
+              if is_generated_artifact "$path" || is_fork_solver "$path"; then
+                git restore --source=origin/master --staged --worktree -- "$path"
+              elif is_upstream_data "$path"; then
+                git restore --theirs --worktree -- "$path"
+                git add -- "$path"
+              else
+                unexpected+=("$path")
+              fi
+            done
+
+            if (( ${#unexpected[@]} > 0 )); then
+              printf '::error::Manual source merge required. Conflict in %s\n' "${unexpected[@]}"
+              printf '### Manual source merge required\n\n' >> "$GITHUB_STEP_SUMMARY"
+              printf -- '- `%s`\n' "${unexpected[@]}" >> "$GITHUB_STEP_SUMMARY"
+              git merge --abort
+              exit 1
+            fi
+          fi
+
+          # Preserve the fork-owned solver even when upstream moved its
+          # submodule pointer without producing a textual conflict.
+          git restore --source=origin/master --staged --worktree -- .gitmodules uma-skill-tools
+
+          # Likewise, upstream-generated assets are never merge inputs. Their
+          # fork equivalents are recreated after installing the pinned solver.
+          generated=(
+            umalator-global/bundle.js
+            umalator-global/bundle.css
+            umalator-global/simulator.worker.js
+            skill-visualizer-global/bundle.js
+            skill-visualizer-global/bundle.css
+          )
+          git restore --source=origin/master --staged --worktree -- "${generated[@]}"
+
           echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Check out fork-owned solver
+        if: steps.merge.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Set up Node.js
+        if: steps.merge.outputs.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install build dependencies
+        if: steps.merge.outputs.changed == 'true'
+        run: npm ci
+
+      - name: Rebuild fork-generated global assets
+        if: steps.merge.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build:umalator-global
+          (
+            cd skill-visualizer-global
+            node build.mjs
+          )
+
+      - name: Commit and publish sync branch
+        if: steps.merge.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch='automation/upstream-sync'
+          git add -- \
+            umalator-global/bundle.js \
+            umalator-global/bundle.css \
+            umalator-global/simulator.worker.js \
+            skill-visualizer-global/bundle.js \
+            skill-visualizer-global/bundle.css
+          git diff --cached --check
+          git commit --no-edit
+
+          git push --force-with-lease origin "$branch"
 
       - name: Create or update upstream pull request
         if: steps.merge.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: automation/upstream-sync
+          SOLVER_UPDATE: ${{ steps.merge.outputs.solver_update }}
         shell: bash
         run: |
           set -euo pipefail
-          existing="$(gh pr list --base master --head "$BRANCH" --state open --json number --jq 'length')"
-          if [[ "$existing" == '0' ]]; then
+          body=$'This automated PR contains the latest upstream source, Global game data, and race/course updates.\n\nCompiled JavaScript and CSS were rebuilt from this fork’s source and fork-owned solver; upstream compiled bundles are never merged.\n\nThe Pages workflow will run data-integrity checks, condition coverage checks, branch/scaling audits, regression tests, and a production build before deployment.'
+          if [[ "$SOLVER_UPDATE" == 'true' ]]; then
+            body+=$'\n\n⚠️ Upstream also changed its solver submodule pointer or configuration. That change was intentionally not imported here and should be reviewed separately in Molpich/uma-skill-tools.'
+          fi
+
+          existing="$(gh pr list --base master --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [[ -z "$existing" ]]; then
             gh pr create \
               --base master \
               --head "$BRANCH" \
               --title 'Sync updates from alpha123/uma-tools' \
-              --body $'This automated PR contains the latest upstream source/data changes.\n\nThe Pages workflow will run data-integrity checks, condition coverage checks, branch/scaling audits, regression tests, and a production build before deployment.'
+              --body "$body"
           else
-            echo "An upstream sync PR is already open; its branch was updated."
+            gh pr edit "$existing" --title 'Sync updates from alpha123/uma-tools' --body "$body"
+            echo "Upstream sync PR #$existing was updated."
           fi
