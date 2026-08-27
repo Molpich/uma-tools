@@ -152,6 +152,7 @@ function DistanceMarker(props) {
 			<text x={`${props.x}%`} y={`${props.y}%`} font-size="10px" text-anchor="middle" fill="white">{`${props.d}m`}</text>
 		</Fragment>
 	);*/
+	
 	return (
 		<Fragment>
 			<text class="distanceMarker" x={`${props.x}%`} y={`${y - (props.up ? -0.8 : 0.8)}%`} font-size="10px" text-anchor="middle" dominant-baseline={props.up ? "hanging" : "auto"} fill="rgb(121,64,22)">{`${props.d}m`}</text>
@@ -262,7 +263,9 @@ export function RaceTrack(props) {
 						<polygon points={`0,${lastEndHeight} 0,100 100,100 100,${thisEndHeight}`} fill="rgb(211,243,68)" />
 					</svg>
 				);
+				elems.push(<text class="percMarker" x={`${(s.start + s.length/2) / course.distance * 100}%`} y="26.2%" dy="-2px" font-size="10px" text-anchor="middle" dominant-baseline={"auto"} fill="rgb(121,64,22)">{`${Math.abs(s.slope / 10000)}%`}</text>)
 			}
+
 			return elems;
 		}, []);
 
@@ -281,17 +284,10 @@ export function RaceTrack(props) {
 					<rect x="0" y="90%" height="10%" width="100%" fill="rgb(163,106,175)" />
 				</svg>
 				{course.slopes.map(s =>
-					<svg>
-						<svg class="slope" x={`${s.start / course.distance * 100}%`} y="28%" width={`${s.length / course.distance * 100}%`} height="18%">
-							<rect x="0" y="0" height="90%" width="100%" fill={s.slope > 0 ? (upi % 2 == 0 ? "rgb(234,207,147)" : "rgb(229,196,120)") : (downi % 2 == 0 ? "rgb(82,195,184)" : "rgb(116,206,198)")} />
-							<rect x="0" y="90%" height="10%" width="100%" fill={s.slope > 0 ? (upi++ % 2 == 0 ? "rgb(191,143,37)" : "rgb(175,132,33)") : (downi++ % 2 == 0 ? "rgb(42,123,115)" : "rgb(50,142,134)")} />
-							<svg class="slopetext" height="67%"> {/* 1/3 = 2/3 * 1/2 */}
-								<SectionText id={s.slope > 0 ? "uphill" : "downhill"} w={s.length / course.distance} />
-							</svg>
-							<svg class="slopetext" height="67%" y="33%">
-								<SectionText id={"slopeperc"} w={s.length / course.distance} fields={{ perc: Math.abs(s.slope / 10000) }}/>
-							</svg>
-						</svg>
+					<svg class="slope" x={`${s.start / course.distance * 100}%`} y="28%" width={`${s.length / course.distance * 100}%`} height="18%">
+						<rect x="0" y="0" height="90%" width="100%" fill={s.slope > 0 ? (upi % 2 == 0 ? "rgb(234,207,147)" : "rgb(229,196,120)") : (downi % 2 == 0 ? "rgb(82,195,184)" : "rgb(116,206,198)")} />
+						<rect x="0" y="90%" height="10%" width="100%" fill={s.slope > 0 ? (upi++ % 2 == 0 ? "rgb(191,143,37)" : "rgb(175,132,33)") : (downi++ % 2 == 0 ? "rgb(42,123,115)" : "rgb(50,142,134)")} />
+						<SectionText id={s.slope > 0 ? "uphill" : "downhill"} w={s.length / course.distance} />
 					</svg>
 				)}
 				{course.slopes.map((s,i) => {
