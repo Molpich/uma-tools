@@ -29,7 +29,6 @@ const STRINGS_ja = Object.freeze({
 		'corner': 'コーナー{{n}}',
 		'uphill': '上り坂',
 		'downhill': '下り坂',
-		'slopeperc': '{{perc}}%',
 		'phase0': '序盤',
 		'phase1': '中盤',
 		'phase2': '終盤',
@@ -39,7 +38,6 @@ const STRINGS_ja = Object.freeze({
 			'corner': 'コ{{n}}',
 			'uphill': '上',
 			'downhill': '下',
-			'slopeperc': '{{perc}}%'
 		})
 	}),
 	'tracknames': TRACKNAMES_ja,
@@ -60,7 +58,6 @@ const STRINGS_en = Object.freeze({
 		'corner': 'Corner ⮌{{n}}',
 		'uphill': 'Uphill ↗',
 		'downhill': 'Downhill ↘',
-		'slopeperc': '{{perc}}%',
 		'phase0': 'Opening leg',
 		'phase1': 'Middle leg',
 		'phase2': 'Final leg',
@@ -70,7 +67,6 @@ const STRINGS_en = Object.freeze({
 			'corner': '⮌{{n}}',
 			'uphill': '↗',
 			'downhill': '↘',
-			'slopeperc': '{{perc}}%',
 		})
 	}),
 	'tracknames': TRACKNAMES_en,
