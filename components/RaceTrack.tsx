@@ -37,7 +37,7 @@ const STRINGS_ja = Object.freeze({
 			'straight': '直',
 			'corner': 'コ{{n}}',
 			'uphill': '上',
-			'downhill': '下',
+			'downhill': '下'
 		})
 	}),
 	'tracknames': TRACKNAMES_ja,
@@ -66,7 +66,7 @@ const STRINGS_en = Object.freeze({
 			'straight': '→',
 			'corner': '⮌{{n}}',
 			'uphill': '↗',
-			'downhill': '↘',
+			'downhill': '↘'
 		})
 	}),
 	'tracknames': TRACKNAMES_en,
@@ -148,7 +148,6 @@ function DistanceMarker(props) {
 			<text x={`${props.x}%`} y={`${props.y}%`} font-size="10px" text-anchor="middle" fill="white">{`${props.d}m`}</text>
 		</Fragment>
 	);*/
-	
 	return (
 		<Fragment>
 			<text class="distanceMarker" x={`${props.x}%`} y={`${y - (props.up ? -0.8 : 0.8)}%`} font-size="10px" text-anchor="middle" dominant-baseline={props.up ? "hanging" : "auto"} fill="rgb(121,64,22)">{`${props.d}m`}</text>
@@ -259,7 +258,7 @@ export function RaceTrack(props) {
 						<polygon points={`0,${lastEndHeight} 0,100 100,100 100,${thisEndHeight}`} fill="rgb(211,243,68)" />
 					</svg>
 				);
-				elems.push(<text class="percMarker" x={`${(s.start + s.length/2) / course.distance * 100}%`} y="26.2%" dy="-2px" font-size="10px" text-anchor="middle" dominant-baseline={"auto"} fill="rgb(121,64,22)">{`${Math.abs(s.slope / 10000)}%`}</text>)
+				elems.push(<text class="slopePer" x={`${(s.start + s.length/2) / course.distance * 100}%`} y="26.2%" dy="-2px" font-size="10px" text-anchor="middle" dominant-baseline="auto" fill="rgb(121,64,22)">{`${Math.abs(s.slope / 10000)}%`}</text>);
 			}
 
 			return elems;
