@@ -68,7 +68,16 @@ export async function saveUma(title: string, uma: HorseState) {
 	const conn = await db.conn;
 	const tx = conn.transaction('umas', 'readwrite');
 	const now = new Date();
-	await tx.store.add({title, uma: serializeUma(uma), score: scoreUma(uma), modified: now, lastUsed: now});
+	// 2026-08-28 currently there's no way to edit the uma's actual aptitudes from the umalator, only
+	// distanceAptitude/surfaceAptitude/strategyAptitude. this means if the user adds skills for distances/strategies
+	// that the uma has non-A aptitudes for, but they have manually raised the aptitudes to A, the score will not match
+	// the game.
+	// in general the mismatch between aptitudes and distanceAptitude/strategyAptitude is kind of annoying, and probably
+	// the correct solution is to get rid of the latter and adjust aptitudes based on the currently selected track, but
+	// for now just pretend all their distance aptitudes are distanceAptitude, all their strategy aptitudes are
+	// strategyAptitude, etc.
+	const aptAdjustedUma = Object.assign({}, uma, {aptitudes: Array(4).fill(uma.distanceAptitude).concat(Array(4).fill(uma.strategyAptitude)).concat(Array(2).fill(uma.surfaceAptitude))});
+	await tx.store.add({title, uma: serializeUma(uma), score: scoreUma(aptAdjustedUma), modified: now, lastUsed: now});
 	await tx.done;
 	db.listeners.forEach(fn => fn());
 }
