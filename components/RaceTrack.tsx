@@ -258,7 +258,9 @@ export function RaceTrack(props) {
 						<polygon points={`0,${lastEndHeight} 0,100 100,100 100,${thisEndHeight}`} fill="rgb(211,243,68)" />
 					</svg>
 				);
+				elems.push(<text class="slopePer" x={`${(s.start + s.length/2) / course.distance * 100}%`} y="26.2%" dy="-2px" font-size="10px" text-anchor="middle" dominant-baseline="auto" fill="rgb(121,64,22)">{`${Math.abs(s.slope / 10000)}%`}</text>);
 			}
+
 			return elems;
 		}, []);
 
