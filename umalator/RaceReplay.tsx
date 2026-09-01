@@ -139,7 +139,7 @@ function buildPaceDownEvents(runner, times) {
 	return events;
 }
 
-export function RaceReplay({replay, course, simulateLanes}) {
+export function RaceReplay({replay, course, simulateLanes, runLabel = 'Race replay'}) {
 	const [frame, setFrame] = useState(0);
 	const [playing, setPlaying] = useState(false);
 	const [speed, setSpeed] = useState(1);
@@ -249,7 +249,7 @@ export function RaceReplay({replay, course, simulateLanes}) {
 
 	return <section class={`raceReplayPanel ${expanded ? 'expanded' : ''}`}>
 		<div class="raceReplayHeader">
-			<div><h2>Median race replay</h2><span>{time.toFixed(2)} s · frame {frame}/{maxFrame}</span></div>
+			<div><h2>{runLabel}</h2><span>{time.toFixed(2)} s · frame {frame}/{maxFrame}</span></div>
 			<div class="raceReplaySelected">{selected && <><strong>{runnerLabel(selected)}</strong><span>{selected.position.toFixed(2)} m · rank {selected.rank} · lane {selected.lane.toFixed(2)} · {selected.velocity.toFixed(2)} m/s</span><span class="raceReplayAcceleration"><strong>Bonus accel {selected.accelBonus >= 0 ? '+' : ''}{selected.accelBonus.toFixed(2)} m/s²</strong><small>Total accel {selected.accelTotal >= 0 ? '+' : ''}{selected.accelTotal.toFixed(2)} m/s²</small></span></>}</div>
 			<button class="raceReplayExpand" onClick={() => setExpanded(value => !value)}
 				aria-label={expanded ? 'Close expanded replay' : 'Expand replay'}>{expanded ? '✕ Close full view' : '⛶ Full view'}</button>
@@ -281,7 +281,7 @@ export function RaceReplay({replay, course, simulateLanes}) {
 			{followSelected && <small>Local distances are magnified; portraits retain a readable size.</small>}
 		</div>
 		<div class="raceReplayStage">
-			<svg viewBox={replayViewBox} role="img" aria-label={`Top-down median race replay at ${time.toFixed(2)} seconds${followSelected ? `, following ${runnerLabel(selected)}` : ''}`}>
+			<svg viewBox={replayViewBox} role="img" aria-label={`Top-down ${runLabel.toLowerCase()} at ${time.toFixed(2)} seconds${followSelected ? `, following ${runnerLabel(selected)}` : ''}`}>
 				<defs>
 					{current.map(runner => <clipPath id={`replayIconClip${runner.index}`}><circle cx="0" cy="0" r="15" /></clipPath>)}
 				</defs>
@@ -345,6 +345,6 @@ export function RaceReplay({replay, course, simulateLanes}) {
 					<span>{skillName(activation.id)}<small>{activation.startTime.toFixed(2)} s · {activation.startPosition.toFixed(1)} m</small></span>
 				</button>)}</div>}
 		</div>
-		<p class="raceReplayNote">Positions, ranks, lanes, modes, and skill activations come from the stored 15 Hz median run. Pace down uses the engine’s synthetic position-keep pacer, not one of the visible field runners. Blocking labels show the geometry used by skill conditions; physical blocking slowdown is not simulated. Phase markers use the engine’s fixed boundaries: mid-race at 1/6, late-race acceleration zone at 2/3, and last-spurt phase at 5/6 of the course. Track geometry is a schematic reconstructed from the course’s exact straight, corner, distance, and turn-direction data.</p>
+		<p class="raceReplayNote">Positions, ranks, lanes, modes, and skill activations come from this stored 15 Hz run. Pace down uses the engine’s synthetic position-keep pacer, not one of the visible field runners. Blocking labels show the geometry used by skill conditions; physical blocking slowdown is not simulated. Phase markers use the engine’s fixed boundaries: mid-race at 1/6, late-race acceleration zone at 2/3, and last-spurt phase at 5/6 of the course. Track geometry is a schematic reconstructed from the course’s exact straight, corner, distance, and turn-direction data.</p>
 	</section>;
 }

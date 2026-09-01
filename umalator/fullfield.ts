@@ -117,6 +117,21 @@ function createFieldReplay(horses: HorseState[], courseDistance: number, dt: num
 	return replay;
 }
 
+function finishRanks(finishTimes: number[]) {
+	const order = finishTimes.map((time, index) => ({time, index}))
+		.sort((a, b) => a.time - b.time || a.index - b.index);
+	const ranks = new Array(finishTimes.length);
+	let previousTime = -Infinity, previousRank = 0;
+	order.forEach((entry, orderIndex) => {
+		const tied = Math.abs(entry.time - previousTime) < 1e-9;
+		const rank = tied ? previousRank : orderIndex + 1;
+		ranks[entry.index] = rank;
+		previousTime = entry.time;
+		previousRank = rank;
+	});
+	return ranks;
+}
+
 function replayBlockStatus(runner: RaceSolver, solvers: RaceSolver[], useLanes: boolean) {
 	const ahead = solvers.filter(other => other != runner && other.pos > runner.pos).sort((a,b) => a.pos - b.pos);
 	let front: RaceSolver[] = [];
@@ -224,6 +239,8 @@ export function runRankAwareComparison(nsamples: number, course: CourseData, rac
 	let minrunIndex = -1, maxrunIndex = -1;
 	const nspurt = [0, 0];
 	const wins = [0, 0], fieldWins = [0, 0];
+	const fieldPlaceCounts = horses.map(() => [0, 0, 0]);
+	const fieldRuns: any[] = [];
 	let ties = 0, fieldTies = 0;
 	const monteCarlo = createMonteCarloAccumulator([uma1.skills.values(), uma2.skills.values()]);
 
@@ -231,7 +248,11 @@ export function runRankAwareComparison(nsamples: number, course: CourseData, rac
 		const solvers = firstPass.generators.map(generator => generator.next().value as RaceSolver);
 		firstPass.setActiveSolvers(solvers);
 		firstPass.initializeLanes(solvers);
-		const data = {t: [[], []], p: [[], []], v: [[], []], hp: [[], []], sk: [null, null], sdly: [0, 0], dh: [0, 0]};
+		const data: any = {t: [[], []], p: [[], []], v: [[], []], hp: [[], []], sk: [null, null], sdly: [0, 0], dh: [0, 0]};
+		if (!options.skipReplay) {
+			data.fieldReplay = createFieldReplay(horses, course.distance, DT);
+			recordFieldReplayFrame(data.fieldReplay, solvers, 0, course.distance, !!options.simulateLanes);
+		}
 		let basinn: number | null = null;
 		const interpolatedFinishTimes: (number | null)[] = solvers.map(() => null);
 		while (solvers.some(solver => solver.pos < course.distance)) {
@@ -251,6 +272,8 @@ export function runRankAwareComparison(nsamples: number, course: CourseData, rac
 				if (finishTime != null) interpolatedFinishTimes[i] = finishTime;
 				if (i < 2) recordFrame(data, i, solver);
 			}
+			if (data.fieldReplay != null) recordFieldReplayFrame(data.fieldReplay, solvers,
+				data.fieldReplay.t.length * DT, course.distance, !!options.simulateLanes);
 			if (basinn == null && segments[0] != null && segments[1] != null) {
 				basinn = interpolateFinishGap(course.distance, segments[0], segments[1]);
 			}
@@ -260,12 +283,17 @@ export function runRankAwareComparison(nsamples: number, course: CourseData, rac
 		for (let i = 0; i < 2; ++i) {
 			data.dh[i] = firstPass.skillPositions[i].get('downhill') || 0;
 			firstPass.skillPositions[i].delete('downhill');
+			if (!options.skipReplay) {
+				const skillPositions = firstPass.skillPositions[i];
+				data.fieldReplay.runners[i].skillActivations = Array.from(skillPositions,
+					([id, records]: [string, any[]]) => records.map(record => ({
+						id, startPosition: record[0], endPosition: record[1],
+						startTime: record[2], endTime: record[3]
+					}))).flat().sort((a,b) => a.startTime - b.startTime);
+			}
 			data.sk[i] = new Map(firstPass.skillPositions[i]); firstPass.skillPositions[i].clear();
 			nspurt[i] += +(solvers[i].isLastSpurt && solvers[i].lastSpurtTransition == -1);
 		}
-		// Opponent activation histories are only retained during the median replay;
-		// discard these first-pass records after every sample.
-		for (let i = 2; i < firstPass.skillPositions.length; ++i) firstPass.skillPositions[i].clear();
 		const result = basinn ?? 0;
 		diff.push(result); indexedResults.push({value: result, index: sample});
 		accumulateMonteCarloRun(monteCarlo, data, course.distance, -result * 2.5);
@@ -278,64 +306,16 @@ export function runRankAwareComparison(nsamples: number, course: CourseData, rac
 		if (firstFinishers > 1) ++fieldTies;
 		else if (finishTimes[0] == firstFinishTime) ++fieldWins[0];
 		else if (finishTimes[1] == firstFinishTime) ++fieldWins[1];
-		if (result < min) { min = result; minrun = data; minrunIndex = sample; }
-		if (result > max) { max = result; maxrun = data; maxrunIndex = sample; }
-		options.onProgress?.(sample + 1, nsamples * 2);
-	}
-	const rawResults = diff.slice();
-	const orderedRuns = indexedResults.slice().sort((x,y) => x.value - y.value || x.index - y.index);
-	const mean = rawResults.reduce((sum,value) => sum + value, 0) / rawResults.length;
-	const meanRecord = indexedResults.reduce((best,current) =>
-		Math.abs(current.value - mean) < Math.abs(best.value - mean) ? current : best);
-	const mid = Math.floor(orderedRuns.length / 2);
-	const medianRecord = orderedRuns.length % 2 == 0 ? orderedRuns[mid - 1] : orderedRuns[mid];
-	const replayTargets = new Set<number>();
-	if (meanRecord.index == minrunIndex) meanrun = minrun;
-	else if (meanRecord.index == maxrunIndex) meanrun = maxrun;
-	else replayTargets.add(meanRecord.index);
-	// Always replay the median sample. The first pass intentionally stores only
-	// the two compared runners; the replay pass captures all field trajectories
-	// for the interactive race viewer without retaining every Monte Carlo run.
-	replayTargets.add(medianRecord.index);
-
-	if (!options.skipReplay && replayTargets.size > 0) {
-		const replayPass = createPass();
-		const replayed = new Map<number, any>();
-		for (let sample = 0; sample < nsamples && replayed.size < replayTargets.size; ++sample) {
-			const record = replayTargets.has(sample);
-			const recordField = sample == medianRecord.index;
-			const solvers = replayPass.generators.map(generator => generator.next().value as RaceSolver);
-			replayPass.setActiveSolvers(solvers);
-			replayPass.initializeLanes(solvers);
-			const data: any = {t: [[], []], p: [[], []], v: [[], []], hp: [[], []], sk: [null, null], sdly: [0, 0], dh: [0, 0]};
-			if (recordField) {
-				data.fieldReplay = createFieldReplay(horses, course.distance, DT);
-				recordFieldReplayFrame(data.fieldReplay, solvers, 0, course.distance, !!options.simulateLanes);
-			}
-			while (solvers.some(solver => solver.pos < course.distance)) {
-				updateLongitudinalFieldState(solvers, DT, !!options.simulateLanes);
-				for (let i = 0; i < solvers.length; ++i) {
-					const solver = solvers[i];
-					if (solver.pos >= course.distance) continue;
-					solver.step(DT);
-					if (record && i < 2) recordFrame(data, i, solver);
-				}
-				if (recordField) recordFieldReplayFrame(data.fieldReplay, solvers,
-					data.fieldReplay.t.length * DT, course.distance, !!options.simulateLanes);
-			}
-			if (record) {
-				data.sdly[0] = solvers[0].startDelay;
-				data.sdly[1] = solvers[1].startDelay;
-			}
-			solvers.forEach(solver => solver.cleanup());
-			for (let i = 0; i < replayPass.skillPositions.length; ++i) {
-				const skillPositions = replayPass.skillPositions[i];
-				if (record && i < 2) {
-					data.dh[i] = skillPositions.get('downhill') || 0;
-				}
+		const ranks = finishRanks(finishTimes);
+		ranks.forEach((rank, index) => {
+			if (rank >= 1 && rank <= 3) ++fieldPlaceCounts[index][rank - 1];
+		});
+		if (!options.skipReplay) {
+			for (let i = 0; i < firstPass.skillPositions.length; ++i) {
+				const skillPositions = firstPass.skillPositions[i];
 				skillPositions.delete('downhill');
-				if (record && i < 2) data.sk[i] = new Map(skillPositions);
-				if (recordField) {
+				if (i >= 2) {
+					// Keep complete activation histories for the retained field replay.
 					data.fieldReplay.runners[i].skillActivations = Array.from(skillPositions,
 						([id, records]: [string, any[]]) => records.map(record => ({
 							id, startPosition: record[0], endPosition: record[1],
@@ -344,15 +324,32 @@ export function runRankAwareComparison(nsamples: number, course: CourseData, rac
 				}
 				skillPositions.clear();
 			}
-			if (record) replayed.set(sample, data);
-			options.onProgress?.(nsamples + sample + 1, nsamples * 2);
+			fieldRuns.push({index: sample, data, fieldReplay: data.fieldReplay, finishTimes, finishRanks: ranks});
+		} else {
+			for (let i = 2; i < firstPass.skillPositions.length; ++i) firstPass.skillPositions[i].clear();
 		}
-		if (meanrun == null) meanrun = replayed.get(meanRecord.index);
-		medianrun = replayed.get(medianRecord.index);
+		if (result < min) { min = result; minrun = data; minrunIndex = sample; }
+		if (result > max) { max = result; maxrun = data; maxrunIndex = sample; }
+		options.onProgress?.(sample + 1, nsamples);
 	}
-	options.onProgress?.(nsamples * 2, nsamples * 2);
+	const rawResults = diff.slice();
+	const orderedRuns = indexedResults.slice().sort((x,y) => x.value - y.value || x.index - y.index);
+	const mean = rawResults.reduce((sum,value) => sum + value, 0) / rawResults.length;
+	const meanRecord = indexedResults.reduce((best,current) =>
+		Math.abs(current.value - mean) < Math.abs(best.value - mean) ? current : best);
+	const mid = Math.floor(orderedRuns.length / 2);
+	const medianRecord = orderedRuns.length % 2 == 0 ? orderedRuns[mid - 1] : orderedRuns[mid];
+	if (!options.skipReplay) {
+		const meanFieldRun = fieldRuns.find(run => run.index == meanRecord.index);
+		const medianFieldRun = fieldRuns.find(run => run.index == medianRecord.index);
+		meanrun = meanFieldRun?.data;
+		medianrun = medianFieldRun?.data;
+	}
+	options.onProgress?.(nsamples, nsamples);
 	diff.sort((a, b) => a - b);
 	return {results: diff, rawResults, runData: {nspurt, minrun, maxrun, meanrun, medianrun,
+		runs: options.skipReplay ? undefined : fieldRuns.map(({data, ...run}) => run),
+		fieldPlaceStats: fieldPlaceCounts.map((places, index) => ({index, places, total: nsamples})),
 		winRate: {wins, ties, total: nsamples}, fieldWinRate: {wins: fieldWins, ties: fieldTies, total: nsamples},
 		monteCarlo: summarizeMonteCarlo(monteCarlo),
 			experimental: {rankAwareField: true, fieldSize, simulateLanes: !!options.simulateLanes,

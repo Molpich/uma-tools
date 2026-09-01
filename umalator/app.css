@@ -360,6 +360,85 @@ button { font-family: Inter, "Noto Sans JP", sans-serif; }
 	text-align: center;
 }
 
+.fieldWinRateSummary {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 4px;
+}
+
+.fieldPlacementTableWrapper {
+	max-width: 100%;
+	overflow-x: auto;
+}
+
+.fieldPlacementTable {
+	background: #fff;
+	border: 1px solid rgb(224, 214, 204);
+	border-collapse: collapse;
+	font-size: 0.95em;
+	line-height: 1.2;
+	min-width: 280px;
+}
+
+.fieldPlacementTable caption {
+	font-weight: bold;
+	padding: 2px 6px;
+}
+
+.fieldPlacementTable th, .fieldPlacementTable td {
+	border: 1px solid rgb(224, 214, 204);
+	padding: 3px 8px;
+	text-align: center;
+}
+
+.fieldPlacementTable th:first-child {
+	text-align: left;
+}
+
+.fieldPlacementTable tbody th {
+	font-weight: bold;
+}
+
+.raceReplayRunControls {
+	align-items: center;
+	background: #f7f2ed;
+	border: 1px solid rgb(224, 214, 204);
+	border-radius: 8px;
+	color: rgb(121, 64, 22);
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px 16px;
+	justify-content: center;
+	margin: 12px auto 0;
+	max-width: 900px;
+	padding: 7px 10px;
+}
+
+.raceReplayRunControls label {
+	align-items: center;
+	display: inline-flex;
+	font-weight: bold;
+	gap: 5px;
+}
+
+.raceReplayRunControls select, .raceReplayRunControls input {
+	background: #fff;
+	border: 1px solid #c9b9aa;
+	border-radius: 4px;
+	color: #4a2b17;
+	font: inherit;
+	padding: 2px 5px;
+}
+
+.raceReplayRunControls input {
+	width: 4.5em;
+}
+
+.raceReplayRunControls > span {
+	font-size: 0.9em;
+}
+
 #resultsSummary {
 	border-spacing: 15px 0;
 }

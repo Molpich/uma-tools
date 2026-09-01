@@ -136,7 +136,10 @@ function runSkillComparison(nsamples: number, course: CourseData, racedef: RaceP
 	// Pair two otherwise identical fields: only Uma 1 changes between the
 	// baseline and variant scenario. Positive values therefore mean the new
 	// skill improved Uma 1's relative result against the same Uma 2/field.
-	const pairedOptions = {...options, pairSkillRngByGroup: true};
+	// Skill/Uma evaluation consumes aggregate results only. Avoid retaining
+	// hundreds of interactive field replays for every table row; the compare
+	// path explicitly leaves replay retention enabled for the user's viewer.
+	const pairedOptions = {...options, pairSkillRngByGroup: true, skipReplay: options.skipReplay ?? true};
 	const base = compare(nsamples, course, racedef, baseUma, otherUma, seed, pairedOptions);
 	const variant = compare(nsamples, course, racedef, variantUma, otherUma, seed, pairedOptions);
 	const rawResults = base.rawResults.map((baseResult, index) => baseResult - variant.rawResults[index]);
@@ -263,7 +266,11 @@ function doCompare({nsamples, course, racedef, uma1, uma2, fieldUmas, options, r
 		sampleSteps.push(n);
 	}
 	sampleSteps.push(nsamples);
-	const total = sampleSteps.reduce((sum, samples) => sum + samples * 2, 0);
+	// The legacy pairwise solver has a second representative-replay pass;
+	// rank-aware field runs now retain their complete replays during the first
+	// pass, so their progress represents one simulation pass per sample.
+	const passCount = options.rankAwareField ? 1 : 2;
+	const total = sampleSteps.reduce((sum, samples) => sum + samples * passCount, 0);
 	let offset = 0, lastPercent = -1, results;
 	function reportProgress(completed, done = false) {
 		const percent = total > 0 ? Math.floor(100 * completed / total) : 100;
@@ -273,9 +280,14 @@ function doCompare({nsamples, course, racedef, uma1, uma2, fieldUmas, options, r
 	}
 	reportProgress(0);
 	for (const samples of sampleSteps) {
-		const roundOptions = {...options, onProgress: completed => reportProgress(offset + completed)};
+		// Only the final adaptive batch needs to carry every interactive replay.
+		// Earlier progress snapshots remain lightweight and are replaced by the
+		// final result before the user can select a run.
+		const roundOptions = {...options,
+			skipReplay: options.skipReplay || (options.rankAwareField && samples != nsamples),
+			onProgress: completed => reportProgress(offset + completed)};
 		results = compare(samples, course, racedef, uma1, uma2, seedgen.pair(), roundOptions);
-		offset += samples * 2;
+		offset += samples * passCount;
 		postMessage({type: 'compare', results, runId});
 	}
 	reportProgress(total, true);

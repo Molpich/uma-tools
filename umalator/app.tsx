@@ -462,12 +462,49 @@ function formatDistribution(d, unit) {
 function WinRateSummary(props) {
 	const format = count => `${(100 * count / props.winRate.total).toFixed(1)}%`;
 	const [uma1, uma2] = props.winRate.wins;
+	const fieldTotal = props.fieldWinRate?.total || props.winRate.total;
+	const formatField = count => `${(100 * count / fieldTotal).toFixed(1)}%`;
 	return (
 		<div id="winRateSummary">
 			<div>Head-to-head win rate: Uma 1 {format(uma1)} · Uma 2 {format(uma2)} · ties {format(props.winRate.ties)}</div>
-			{props.fieldWinRate && <div>Field win rate: Uma 1 {format(props.fieldWinRate.wins[0])} · Uma 2 {format(props.fieldWinRate.wins[1])} · other runners {format(Math.max(0, props.fieldWinRate.total - props.fieldWinRate.wins[0] - props.fieldWinRate.wins[1] - props.fieldWinRate.ties))} · ties {format(props.fieldWinRate.ties)}</div>}
+			{props.fieldWinRate && <div class="fieldWinRateSummary">
+				<div>Field wins: Uma 1 {formatField(props.fieldWinRate.wins[0])} · Uma 2 {formatField(props.fieldWinRate.wins[1])} · ties {formatField(props.fieldWinRate.ties)}</div>
+				{props.fieldPlaceStats?.length > 0 && <div class="fieldPlacementTableWrapper">
+					<table class="fieldPlacementTable">
+						<caption>Field placement rates</caption>
+						<thead><tr><th scope="col">Runner</th><th scope="col">1st</th><th scope="col">2nd</th><th scope="col">3rd</th></tr></thead>
+						<tbody>{props.fieldPlaceStats.map(stat => <tr>
+							<th scope="row">Uma {stat.index + 1}</th>
+							{stat.places.map(placeCount => <td>{formatField(placeCount)}</td>)}
+						</tr>)}</tbody>
+					</table>
+				</div>}
+			</div>}
 		</div>
 	);
+}
+
+function ReplayRunControls(props) {
+	const {runs, sortedRuns, sortRunner, setSortRunner, activeRunIndex, onSelectRun} = props;
+	if (runs == null || runs.length == 0) return null;
+	const activePosition = Math.max(0, sortedRuns.findIndex(run => run.index == activeRunIndex));
+	const activeRun = runs.find(run => run.index == activeRunIndex) || sortedRuns[0];
+	const selectedFinishTime = activeRun?.finishTimes?.[sortRunner];
+	return <div class="raceReplayRunControls">
+		<label>Sort runs by
+			<select value={sortRunner} onChange={event => setSortRunner(+event.currentTarget.value)}>
+				{runs[0].fieldReplay.runners.map((_, index) => <option value={index}>Uma {index + 1}</option>)}
+			</select>
+		</label>
+		<label>Run
+			<input type="number" min="1" max={sortedRuns.length} value={activePosition + 1}
+				onInput={event => {
+					const position = Math.max(1, Math.min(sortedRuns.length, Math.trunc(+event.currentTarget.value) || 1));
+					onSelectRun(sortedRuns[position - 1].index);
+				}} /> / {sortedRuns.length}
+		</label>
+		<span>Best to worst for Uma {sortRunner + 1} (place, then finish time){selectedFinishTime != null ? ` · ${selectedFinishTime.toFixed(3)} s` : ''}</span>
+	</div>;
 }
 
 const MonteCarloAnalysis = memo(function MonteCarloAnalysis(props) {
@@ -476,7 +513,7 @@ const MonteCarloAnalysis = memo(function MonteCarloAnalysis(props) {
 	return (
 		<section id="monteCarloAnalysis">
 			<h2>All-run Monte Carlo analysis</h2>
-			<p class="analysisNote">These graphs use all {stats.runs} runs. The speed graph averages each runner's recorded velocity and treats them as stopped after finishing; the lead graphs keep finished runners at {props.courseDistance} m. The velocity/HP display above remains one representative individual run.</p>
+			<p class="analysisNote">These graphs use all {stats.runs} runs. The speed graph averages each runner's recorded velocity and treats them as stopped after finishing; the lead graphs keep finished runners at {props.courseDistance} m. The velocity/HP display above follows the currently selected replay run.</p>
 			<div class="analysisLegend"><span class="uma1Swatch" />Uma 1 <span class="uma2Swatch" />Uma 2 <span class="meanSwatch" />Mean lead <span class="medianSwatch" />Median lead; bands p25–p75 and p10–p90</div>
 			<MonteCarloChart kind="speed" title="Speed vs Time" stats={stats} courseDistance={props.courseDistance} width={920} height={290} />
 			<MonteCarloChart kind="lead" title="Lead vs Time" stats={stats} courseDistance={props.courseDistance} width={920} height={290} />
@@ -1201,7 +1238,37 @@ function Umalator(props) {
 	const [chartSelectionResults, setChartSelectionResults] = useState(NULL_RESULTS);
 	const [stacalcResults, setStacalcResults] = useState(NULL_RESULTS);
 	const {results, runData} = [compareResults, chartSelectionResults, stacalcResults][mode];
-	const chartData = runData && runData[displaying];
+	// Early adaptive compare batches may intentionally omit replay retention to
+	// keep worker messages small; use the minimum run as a safe interim table.
+	const chartData = runData && (runData[displaying] || runData.minrun);
+	const [replaySortRunner, setReplaySortRunner] = useState(0);
+	const [replayRunIndex, setReplayRunIndex] = useState(-1);
+	const replayRuns = runData?.runs || [];
+	const sortedReplayRuns = useMemo(() => {
+		const runnerIndex = Math.max(0, Math.min(replaySortRunner, Math.max(0, (replayRuns[0]?.fieldReplay?.runners?.length || 1) - 1)));
+		return replayRuns.slice().sort((a, b) => {
+			const rankA = a.finishRanks?.[runnerIndex] ?? Infinity;
+			const rankB = b.finishRanks?.[runnerIndex] ?? Infinity;
+			const timeA = a.finishTimes?.[runnerIndex] ?? Infinity;
+			const timeB = b.finishTimes?.[runnerIndex] ?? Infinity;
+			return rankA - rankB || timeA - timeB || a.index - b.index;
+		});
+	}, [replayRuns, replaySortRunner]);
+	const defaultReplayPosition = sortedReplayRuns.length > 0 ? Math.floor((sortedReplayRuns.length - 1) / 2) : -1;
+	const defaultReplayRun = defaultReplayPosition >= 0 ? sortedReplayRuns[defaultReplayPosition] : null;
+	const activeReplayRun = replayRuns.find(run => run.index == replayRunIndex) || defaultReplayRun;
+	useEffect(() => {
+		if (replayRuns.length == 0) {
+			if (replayRunIndex != -1) setReplayRunIndex(-1);
+			return;
+		}
+		// Start with the median run in the current sort order. Once a run is
+		// selected, changing the Uma used for sorting must leave that replay
+		// active rather than silently loading a different sample.
+		if (!replayRuns.some(run => run.index == replayRunIndex)) setReplayRunIndex(defaultReplayRun?.index ?? -1);
+		const runnerCount = replayRuns[0].fieldReplay?.runners?.length || 1;
+		if (replaySortRunner >= runnerCount) setReplaySortRunner(0);
+	}, [replayRuns, sortedReplayRuns, defaultReplayRun]);
 
 	const [tableData, setTableData] = useLens(O.tableData);
 	function updateTableData(newData) {
@@ -1705,7 +1772,7 @@ function Umalator(props) {
 						</tbody>
 					</table>
 					<div id="resultsHelp"><MarkupText id="ui.resultshelp" /></div>
-					<WinRateSummary winRate={runData.winRate} fieldWinRate={runData.fieldWinRate} />
+					<WinRateSummary winRate={runData.winRate} fieldWinRate={runData.fieldWinRate} fieldPlaceStats={runData.fieldPlaceStats} />
 					<Histogram width={500} height={333} data={results} splitColors={true} />
 				</div>
 				<div id="infoTables">
@@ -1715,8 +1782,14 @@ function Umalator(props) {
 					</Localizer>
 				</div>
 				</div>
-				{runData.medianrun?.fieldReplay && <RaceReplay replay={runData.medianrun.fieldReplay} course={course}
-					simulateLanes={!!runData.experimental?.simulateLanes} />}
+				{(activeReplayRun?.fieldReplay || runData.medianrun?.fieldReplay) && <Fragment>
+					<ReplayRunControls runs={replayRuns} sortedRuns={sortedReplayRuns} sortRunner={replaySortRunner}
+						setSortRunner={setReplaySortRunner} activeRunIndex={activeReplayRun?.index ?? -1}
+						onSelectRun={setReplayRunIndex} />
+					<RaceReplay replay={activeReplayRun?.fieldReplay || runData.medianrun.fieldReplay} course={course}
+						runLabel={activeReplayRun == null ? 'Race replay' : `Run ${(sortedReplayRuns.findIndex(run => run.index == activeReplayRun.index) + 1)} · Uma ${replaySortRunner + 1}`}
+						simulateLanes={!!runData.experimental?.simulateLanes} />
+				</Fragment>}
 				{runData.monteCarlo && <MonteCarloAnalysis stats={runData.monteCarlo} courseDistance={course.distance} />}
 			</div>
 		);
