@@ -1,4 +1,4 @@
-.distanceMarker {
+.distanceMarker, .slopePer {
 	font-weight: 600;
 	paint-order: stroke;
 	stroke: white;
