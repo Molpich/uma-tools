@@ -9,7 +9,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 concurrency:
   group: upstream-sync
@@ -27,8 +26,6 @@ jobs:
 
       - name: Merge upstream source and data
         id: merge
-        env:
-          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -37,19 +34,9 @@ jobs:
           git remote add upstream https://github.com/alpha123/uma-tools.git
           git fetch --no-tags upstream master
 
-          branch='automation/upstream-sync'
-          existing_sync_pr="$(gh pr list --base master --head "$branch" --state open --json number --jq '.[0].number // empty')"
-          if [[ -n "$existing_sync_pr" ]] \
-            && git show-ref --verify --quiet "refs/remotes/origin/$branch" \
-            && git merge-base --is-ancestor origin/master "origin/$branch" \
-            && git merge-base --is-ancestor upstream/master "origin/$branch"; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "solver_update=false" >> "$GITHUB_OUTPUT"
-            echo "Existing upstream sync PR #$existing_sync_pr already contains the current fork and upstream heads." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          git switch -C "$branch" origin/master
+          # Work from the current fork master. Nothing is published until the
+          # merge has built and passed all validation below.
+          git switch -C automation/upstream-sync origin/master
 
           if git merge-base --is-ancestor upstream/master HEAD; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -65,7 +52,7 @@ jobs:
             solver_update=true
             echo "::warning::Upstream changed its solver submodule configuration or pointer. The fork-owned solver remains pinned; review the upstream solver separately."
             echo "### Solver update intentionally not imported" >> "$GITHUB_STEP_SUMMARY"
-            echo "The parent upstream changed \`.gitmodules\` or \`uma-skill-tools\`. This workflow kept the fork-owned solver so data updates can continue safely." >> "$GITHUB_STEP_SUMMARY"
+            echo "The parent upstream changed `.gitmodules` or `uma-skill-tools`. This workflow kept the fork-owned solver so data updates can continue safely." >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "solver_update=$solver_update" >> "$GITHUB_OUTPUT"
 
@@ -170,18 +157,32 @@ jobs:
             node build.mjs
           )
 
-      - name: Commit and publish sync branch
+      - name: Validate imported data and mechanics coverage
+        if: steps.merge.outputs.changed == 'true'
+        run: |
+          npm run audit:data
+          npm run audit:conditions
+          npm run audit:skill-branches
+          npm run audit:special-scaling
+
+      - name: Run maintained regression tests
+        if: steps.merge.outputs.changed == 'true'
+        run: |
+          npm run test:montecarlo
+          npm run test:rank-aware
+
+      - name: Commit validated sync and update master
         if: steps.merge.outputs.changed == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          branch='automation/upstream-sync'
           git add -- \
             umalator-global/bundle.js \
             umalator-global/bundle.css \
             umalator-global/simulator.worker.js \
             skill-visualizer-global/bundle.js \
             skill-visualizer-global/bundle.css
+
           # Upstream's data snapshots are committed with CRLF line endings.
           # Tell Git that the CR immediately before LF is an end-of-line marker
           # so the whitespace guard still catches real trailing spaces without
@@ -189,49 +190,10 @@ jobs:
           git -c core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol diff --cached --check
           git commit --no-edit
 
-          git push --force-with-lease origin "$branch"
+          # Never force master. If master changed while this job was validating,
+          # this push fails safely and the next scheduled run retries from the
+          # newer master instead of overwriting anything.
+          git push origin HEAD:master
 
-      - name: Create or update upstream pull request
-        if: steps.merge.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BRANCH: automation/upstream-sync
-          SOLVER_UPDATE: ${{ steps.merge.outputs.solver_update }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          body=$'This automated PR contains the latest upstream source, Global game data, and race/course updates.\n\nCompiled JavaScript and CSS were rebuilt from this fork’s source and fork-owned solver; upstream compiled bundles are never merged.\n\nThe Pages workflow will run data-integrity checks, condition coverage checks, branch/scaling audits, regression tests, and a production build before deployment.'
-          if [[ "$SOLVER_UPDATE" == 'true' ]]; then
-            body+=$'\n\n⚠️ Upstream also changed its solver submodule pointer or configuration. That change was intentionally not imported here and should be reviewed separately in Molpich/uma-skill-tools.'
-          fi
-
-          existing="$(
-            gh api \
-              -H 'Accept: application/vnd.github+json' \
-              -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "repos/$GITHUB_REPOSITORY/pulls?state=open&base=master&head=${GITHUB_REPOSITORY_OWNER}:$BRANCH" \
-              --jq '.[0].number // empty'
-          )"
-
-          if [[ -z "$existing" ]]; then
-            gh api \
-              --method POST \
-              -H 'Accept: application/vnd.github+json' \
-              -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "repos/$GITHUB_REPOSITORY/pulls" \
-              -f title='Sync updates from alpha123/uma-tools' \
-              -f head="$BRANCH" \
-              -f base='master' \
-              -f body="$body" \
-              --jq '.html_url'
-          else
-            gh api \
-              --method PATCH \
-              -H 'Accept: application/vnd.github+json' \
-              -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "repos/$GITHUB_REPOSITORY/pulls/$existing" \
-              -f title='Sync updates from alpha123/uma-tools' \
-              -f body="$body" \
-              --silent
-            echo "Upstream sync PR #$existing was updated."
-          fi
+          echo "### Upstream sync published" >> "$GITHUB_STEP_SUMMARY"
+          echo "The upstream merge built and passed all audits/tests, then was pushed directly to `master`." >> "$GITHUB_STEP_SUMMARY"
