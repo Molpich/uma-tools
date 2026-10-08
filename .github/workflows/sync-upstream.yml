@@ -4,11 +4,14 @@ on:
   # GitHub schedules are polling rather than a true upstream webhook. The
   # manual trigger is useful when the upstream repository has just changed.
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '17 */3 * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
+  # Explicitly dispatch deployment after a bot push; GITHUB_TOKEN pushes do
+  # not trigger the deployment workflow's push event.
+  actions: write
 
 concurrency:
   group: upstream-sync
@@ -197,3 +200,16 @@ jobs:
 
           echo "### Upstream sync published" >> "$GITHUB_STEP_SUMMARY"
           echo "The upstream merge built and passed all audits/tests, then was pushed directly to `master`." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deploy published upstream changes
+        if: steps.merge.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This step runs only after the changed merge was validated and
+          # pushed successfully. No-op syncs and failed pushes never deploy.
+          gh workflow run deploy-pages.yml --ref master
+          echo "Deployment of the updated master requested." >> "$GITHUB_STEP_SUMMARY"
