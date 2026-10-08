@@ -35,6 +35,7 @@ class ForceFullSpurtHpPolicy {
 		this.wrapped.tick(state, dt);
 	}
 	remainingHp() { return this.wrapped.remainingHp(); }
+	hasRemainingHp() { return this.wrapped.hasRemainingHp(); }
 	hpRatioRemaining() { return this.wrapped.hpRatioRemaining(); }
 	recover(modifier: number) { this.wrapped.recover(modifier); }
 
@@ -67,6 +68,7 @@ class CalcRequiredHpPolicy {
 	}
 	tick(state: RaceState, dt: number) { this.wrapped.tick(state, dt); }
 	remainingHp() { return this.wrapped.maxHp; }
+	hasRemainingHp() { return true; }
 	hpRatioRemaining() { return 1.0; }
 	recover(modifier: number) { this.wrapped.recover(modifier); }
 
